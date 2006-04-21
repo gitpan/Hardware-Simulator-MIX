@@ -1,0 +1,18 @@
+
+There are some other MIX simulators in the world, but none of them
+is in Perl. 
+
+That's why I start to write this one. 
+
+There is a long way to go.
+
+INSTALL
+=======
+
+In windows:
+
+perl Build.PL
+perl Build
+perl Build test
+perl Build install
+
