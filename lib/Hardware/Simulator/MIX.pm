@@ -17,7 +17,7 @@ our @EXPORT    = qw(
 	get_pc
 	get_cmp_flag );
 
-our $VERSION   = 0.01;
+our $VERSION   = 0.02;
 
 my $max_byte = 64;
 
@@ -100,15 +100,149 @@ sub step
 
 	my $c = $word[5];
 	my $f = $word[4];
+	my $r = $f%8;
+	my $l = int($f/8);
 	my $i = $word[3];
 	my $a = $word[1] * $max_byte + $word[2];
 	$a = ($word[0] eq '+')? $a : (0 - $a);
+	my $m = $a;
+	if ($i >= 1 && $i <= 6) {
+		$m += $self->get_reg('rI' . $i);
+	}
 	
 	$self->{pc_next} = $self->{pc} + 1;
-	if ( $c == 5 && $f == 2) { ## HLT
+	if ( $c == 5 && $f == 2) { ## HLT: the machine stops
 		$self->{status} = 1;
 		$self->{message} = 'halts normally';
+	} elsif ($c == 0) { ## NOP: no operation
+	} elsif ($c == 8) { ## LDA: load A
+		my @tmp = $self->get_word($m, $l, $r);
+		$self->set_reg('rA', \@tmp);
+	} elsif ($c == 15) { ## LDX
+		my @tmp = $self->get_word($m, $l, $r);
+		$self->set_reg('rX', \@tmp);
+	} elsif ($c >= 9 && $c <= 14) { ## LDi
+		my @tmp = $self->get_word($m, $l, $r);
+		$self->set_reg('rI' . ($c-8), \@tmp);
+	} elsif ($c == 16) { ## LDAN
+		my @tmp = $self->get_word($m, $l, $r);
+		@tmp = neg_word(\@tmp);
+		$self->set_reg('rA', \@tmp);
+	} elsif ($c == 23) { ## LDXN
+		my @tmp = $self->get_word($m, $l, $r);
+		@tmp = neg_word(\@tmp);
+		$self->set_reg('rX', \@tmp);
+	} elsif ($c >= 17 && $c <= 22) { ## LDiN
+		my @tmp = $self->get_word($m, $l, $r);
+		@tmp = neg_word(\@tmp);
+		$self->set_reg('rI' . ($c-16), \@tmp);
+	} 
+}
+
+sub neg_word
+{
+	my @tmp = @{$_[0]};
+	if ($tmp[0] eq '-') {
+		$tmp[0] = '+';
+	} elsif ($tmp[0] eq '+') {
+		$tmp[0] = '-';
 	} else {
+		unshift @tmp, '-';
+	}
+	return @tmp;
+}
+
+sub print_all_regs {
+	my ($self) = @_;
+
+	print " rA: ";
+	$self->print_reg('rA');
+	print "  rX: ";
+	$self->print_reg('rX');
+	print "\nrI1: ";
+	$self->print_reg('rI1');
+	print "  rI2: ";
+	$self->print_reg('rI2');
+	print "\nrI3: ";
+	$self->print_reg('rI3');
+	print "  rI4: ";
+	$self->print_reg('rI4');
+	print "\nrI5: ";
+	$self->print_reg('rI5');
+	print "  rI6: ";
+	$self->print_reg('rI6');
+	print "\n rJ: ";
+	$self->print_reg('rJ');
+	print "\nPC = ", $self->{pc}, "  NEXT = ", $self->{pc_next};
+	print "  ", $self->{ov_flag}?'OV':'NO';
+	if ($self->{cmp_flag} > 0) {
+		print " GT",
+	} elsif ($self->{cmp_flag} < 0) {
+		print " LT";
+	} else {
+		print " EQ";
+	}
+	if ($self->{status} == 0) {
+		print " OK";
+	} elsif ($self->{status} == 1) {
+		print " HALT";
+	} else {
+		print " ERROR";
+	}
+	print "\n";
+}
+
+sub print_reg {
+	my ($self, $reg) = @_;
+	my @word = $self->get_reg($reg);
+	print word_to_string(@word);
+}
+
+sub clear_status {
+	my ($self) = @_;
+	$self->{status} = 0;
+}
+
+sub get_reg
+{
+	my ($self, $reg) = @_;
+	my @retval = ();
+
+	push @retval, @{$self->{$reg}}[0];
+	my $l = ($reg =~ m/r(I|J)/)?4:1;
+	while ($l <= 5) {
+		push @retval, @{$self->{$reg}}[$l];
+		++$l;
+	}
+	my $value = get_value(@retval);
+	return wantarray? @retval:$value;
+}
+
+sub set_reg
+{
+	my ($self, $reg, $wref) = @_;
+
+	my @word = @{$wref};
+	if (!exists $self->{$reg})
+	{
+		$self->{status} = 2;
+		$self->{message} = "accessing non-existed reg: $reg";
+		return;
+	}
+
+	my $sign = '+';
+	if (@{$wref}[0] eq '+' || @{$wref}[0] eq '-') 
+	{
+		$sign = shift @{$wref};
+	}
+	@{$self->{$reg}}[0] = $sign;
+
+	my $l = ($reg =~ m/r(I|J)/)?4:1;
+	my $r = 5;
+	while ($r >= $l && @word != 0)
+	{
+		@{$self->{$reg}}[$r] = pop @word;
+		--$r;
 	}
 }
 
