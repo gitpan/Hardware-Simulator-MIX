@@ -1,0 +1,733 @@
+use Data::Dumper;
+
+my $error_count = 0;
+my $ln = 0;
+my $loc = 0;
+my $srcfile;
+my $symbols = {};
+my $local_symbols = {};
+my $unget_token = undef;
+my $byte_size = 64;
+my $parse_phase = 1;
+my $end_of_program = 0;
+my $end_loc = 0;
+my $code = undef;
+my $codes = {};
+my @implied_constant_words = ();
+
+my $ops = {
+	NOP  => { c => 0, f => 1, t => 1 },
+	ADD  => { c => 1, f => 5, t => 2 },
+	FADD => { c => 1, f => 6, t => 2 },
+	SUB  => { c => 2, f => 5, t => 2 },
+	FSUB => { c => 2, f => 6, t => 2 },
+	MUL  => { c => 3, f => 5, t => 10 },
+	FMUL => { c => 3, f => 6, t => 10 },
+	DIV  => { c => 4, f => 5, t => 12 },
+	FDIV => { c => 4, f => 6, t => 12 },
+	NUM  => { c => 5, f => 0, t => 1 },
+	CHAR => { c => 5, f => 1, t => 1 },
+	HLT  => { c => 5, f => 2, t => 1 },
+	SLA  => { c => 6, f => 0, t => 2 },
+	SRA  => { c => 6, f => 1, t => 2 },
+	SLAX => { c => 6, f => 2, t => 2 },
+	SRAX => { c => 6, f => 3, t => 2 },
+	SLC  => { c => 6, f => 4, t => 2 },
+	SRC  => { c => 6, f => 5, t => 2 },
+	MOVE => { c => 7, f => 1, t => 1 }, ## t = 1 + 2f
+	LDA  => { c => 8, f => 5, t => 2 },
+	LD1  => { c => 9, f => 5, t => 2 },
+	LD2  => { c =>10, f => 5, t => 2 },
+	LD3  => { c =>11, f => 5, t => 2 },
+	LD4  => { c =>12, f => 5, t => 2 },
+	LD5  => { c =>13, f => 5, t => 2 },
+	LD6  => { c =>14, f => 5, t => 2 },
+	LDX  => { c =>15, f => 5, t => 2 },
+	LDAN => { c =>16, f => 5, t => 2 },
+	LD1N => { c =>17, f => 5, t => 2 },
+	LD2N => { c =>18, f => 5, t => 2 },
+	LD3N => { c =>19, f => 5, t => 2 },
+	LD4N => { c =>20, f => 5, t => 2 },
+	LD5N => { c =>21, f => 5, t => 2 },
+	LD6N => { c =>22, f => 5, t => 2 },
+	LDXN => { c =>23, f => 5, t => 2 },
+	STA  => { c =>24, f => 5, t => 2 },
+	ST1  => { c =>25, f => 5, t => 2 },
+	ST2  => { c =>26, f => 5, t => 2 },
+	ST3  => { c =>27, f => 5, t => 2 },
+	ST4  => { c =>28, f => 5, t => 2 },
+	ST5  => { c =>29, f => 5, t => 2 },
+	ST6  => { c =>30, f => 5, t => 2 },
+	STX  => { c =>31, f => 5, t => 2 },
+	STJ  => { c =>32, f => 2, t => 2 },
+	STZ  => { c =>33, f => 5, t => 2 },
+	JBUS => { c =>34, f => 0, t => 1 },
+	IOC  => { c =>35, f => 0, t => 1 }, ## 1 + interlock time
+	IN   => { c =>36, f => 0, t => 1 }, ## 1 + interlock time
+	OUT  => { c =>37, f => 0, t => 1 }, ## 1 + interlock time
+	JRED => { c =>38, f => 0, t => 1 },
+	JMP  => { c =>39, f => 0, t => 1 },
+	JSJ  => { c =>39, f => 1, t => 1 },
+	JOV  => { c =>39, f => 2, t => 1 },
+	JNOV => { c =>39, f => 3, t => 1 },
+	JL   => { c =>39, f => 4, t => 1 },
+	JE   => { c =>39, f => 5, t => 1 },
+	JG   => { c =>39, f => 6, t => 1 },
+	JGE  => { c =>39, f => 7, t => 1 },
+	JNE  => { c =>39, f => 8, t => 1 },
+	JLE  => { c =>39, f => 9, t => 1 },
+
+	JAN  => { c =>40, f => 0, t => 1 },
+	JAZ  => { c =>40, f => 1, t => 1 },
+	JAP  => { c =>40, f => 2, t => 1 },
+	JANN => { c =>40, f => 3, t => 1 },
+	JANZ => { c =>40, f => 4, t => 1 },
+	JANP => { c =>40, f => 5, t => 1 },
+
+	J1N  => { c =>41, f => 0, t => 1 },
+	J1Z  => { c =>41, f => 1, t => 1 },
+	J1P  => { c =>41, f => 2, t => 1 },
+	J1NN => { c =>41, f => 3, t => 1 },
+	J1NZ => { c =>41, f => 4, t => 1 },
+	J1NP => { c =>41, f => 5, t => 1 },
+
+	J2N  => { c =>42, f => 0, t => 1 },
+	J2Z  => { c =>42, f => 1, t => 1 },
+	J2P  => { c =>42, f => 2, t => 1 },
+	J2NN => { c =>42, f => 3, t => 1 },
+	J2NZ => { c =>42, f => 4, t => 1 },
+	J2NP => { c =>42, f => 5, t => 1 },
+
+	J3N  => { c =>43, f => 0, t => 1 },
+	J3Z  => { c =>43, f => 1, t => 1 },
+	J3P  => { c =>43, f => 2, t => 1 },
+	J3NN => { c =>43, f => 3, t => 1 },
+	J3NZ => { c =>43, f => 4, t => 1 },
+	J3NP => { c =>43, f => 5, t => 1 },
+
+	J4N  => { c =>44, f => 0, t => 1 },
+	J4Z  => { c =>44, f => 1, t => 1 },
+	J4P  => { c =>44, f => 2, t => 1 },
+	J4NN => { c =>44, f => 3, t => 1 },
+	J4NZ => { c =>44, f => 4, t => 1 },
+	J4NP => { c =>44, f => 5, t => 1 },
+
+	J5N  => { c =>45, f => 0, t => 1 },
+	J5Z  => { c =>45, f => 1, t => 1 },
+	J5P  => { c =>45, f => 2, t => 1 },
+	J5NN => { c =>45, f => 3, t => 1 },
+	J5NZ => { c =>45, f => 4, t => 1 },
+	J5NP => { c =>45, f => 5, t => 1 },
+
+	J6N  => { c =>46, f => 0, t => 1 },
+	J6Z  => { c =>46, f => 1, t => 1 },
+	J6P  => { c =>46, f => 2, t => 1 },
+	J6NN => { c =>46, f => 3, t => 1 },
+	J6NZ => { c =>46, f => 4, t => 1 },
+	J6NP => { c =>46, f => 5, t => 1 },
+
+	JXN  => { c =>47, f => 0, t => 1 },
+	JXZ  => { c =>47, f => 1, t => 1 },
+	JXP  => { c =>47, f => 2, t => 1 },
+	JXNN => { c =>47, f => 3, t => 1 },
+	JXNZ => { c =>47, f => 4, t => 1 },
+	JXNP => { c =>47, f => 5, t => 1 },
+
+	INCA => { c =>48, f => 0, t => 1 },
+	DECA => { c =>48, f => 1, t => 1 },
+	ENTA => { c =>48, f => 2, t => 1 },
+	ENNA => { c =>48, f => 3, t => 1 },
+
+	INC1 => { c =>49, f => 0, t => 1 },
+	DEC1 => { c =>49, f => 1, t => 1 },
+	ENT1 => { c =>49, f => 2, t => 1 },
+	ENN1 => { c =>49, f => 3, t => 1 },
+
+	INC2 => { c =>50, f => 0, t => 1 },
+	DEC2 => { c =>50, f => 1, t => 1 },
+	ENT2 => { c =>50, f => 2, t => 1 },
+	ENN2 => { c =>50, f => 3, t => 1 },
+
+	INC3 => { c =>51, f => 0, t => 1 },
+	DEC3 => { c =>51, f => 1, t => 1 },
+	ENT3 => { c =>51, f => 2, t => 1 },
+	ENN3 => { c =>51, f => 3, t => 1 },
+
+	INC4 => { c =>52, f => 0, t => 1 },
+	DEC4 => { c =>52, f => 1, t => 1 },
+	ENT4 => { c =>52, f => 2, t => 1 },
+	ENN4 => { c =>52, f => 3, t => 1 },
+
+	INC5 => { c =>53, f => 0, t => 1 },
+	DEC5 => { c =>53, f => 1, t => 1 },
+	ENT5 => { c =>53, f => 2, t => 1 },
+	ENN5 => { c =>53, f => 3, t => 1 },
+
+	INC6 => { c =>54, f => 0, t => 1 },
+	DEC6 => { c =>54, f => 1, t => 1 },
+	ENT6 => { c =>54, f => 2, t => 1 },
+	ENN6 => { c =>54, f => 3, t => 1 },
+	
+	INCX => { c =>55, f => 0, t => 1 },
+	DECX => { c =>55, f => 1, t => 1 },
+	ENTX => { c =>55, f => 2, t => 1 },
+	ENNX => { c =>55, f => 3, t => 1 },
+
+	CMPA => { c =>56, f => 5, t => 2 },
+	FCMP => { c =>56, f => 6, t => 2 },
+	CMP1 => { c =>57, f => 5, t => 2 },
+	CMP2 => { c =>58, f => 5, t => 2 },
+	CMP3 => { c =>59, f => 5, t => 2 },
+	CMP4 => { c =>60, f => 5, t => 2 },
+	CMP5 => { c =>61, f => 5, t => 2 },
+	CMP6 => { c =>62, f => 5, t => 2 },
+	CMPX => { c =>63, f => 5, t => 2 },
+	
+};
+
+sub debug {return; print $_ foreach @_ }
+
+$srcfile = shift @ARGV;
+open FILE, "<$srcfile" || die "can't open $srcfile";
+while (<FILE>) {
+	$ln++;
+	chop;
+#	printf "%04d: %s\n", $ln, $_;
+	next if m/^\s*$/;
+	next if m/^\*/;
+	parse1($_);
+	last if $end_of_program;
+}
+if ($error_count > 0) {
+	print STDERR "MIXASM: $error_count errors found.";
+	close FILE;
+	exit(1);
+}
+
+
+
+########################################################################
+## PARSE PHASE II
+########################################################################
+
+seek FILE, 0, 0; ## rewind
+
+$end_of_program = 0;
+$end_loc = $loc;
+$ln = 0;
+$loc = 0;
+my $currloc;
+while (<FILE>) {
+	my $srcline = $_;
+	$ln++;
+	$code = undef;
+	$currloc = $loc;
+	chop;
+
+	my $empty = 0;
+	$empty = 1 if m/^\s*$/;
+	$empty = 1 if m/^\*/;
+	parse2($_) if !$empty;
+
+	if (defined $code) {
+	#	print Dumper $code;
+		printf "%04d: %s ", $currloc, $code->{code};
+	} else {
+		print ' ' x 24;
+	}
+	printf "  %4d  ", $ln;
+	print $srcline;
+
+	last if $end_of_program;
+}
+
+foreach (@implied_constant_words) {
+	printf "%04d: %s \n", $_->{loc}, $_->{code};
+}
+
+close FILE;
+
+
+if ($error_count > 0) {
+	print STDERR "MIXASM: $error_count errors found.";
+	exit(1);
+}
+
+
+sub parse1 
+{
+	my $get_token = tokenizer(shift);
+	my $label;
+
+	$parse_phase = 1;
+	my($type, $value) = &$get_token; 
+	
+	## Check Label field
+
+	if ($type eq 'LABEL') {
+		$label = $value;
+		if ($label =~ m/\dH/) {
+			# Local symbol
+		} else {
+			if (exists $symbols->{$label}) {
+				error("predefined symbol: '$label'");
+			}
+		}
+		debug "Label is $label, ";
+		($type, $value) = &$get_token;
+	}
+	
+	## Op field
+
+	if ( $type ne 'SYMBOL' ) {
+		error("undefined op $value");
+		return;
+	}
+
+	debug "Op is $value";
+
+	if ( $value eq 'EQU' ) {
+		if (!defined $label) {
+			error("missing label");
+			return;
+		}
+		my $val = parse_expr($get_token);
+		if (defined $val) {
+			debug ", Install symbol $label with value $val\n";
+			install_symbol($label, $val);
+		}
+	} elsif ( $value eq 'ORIG' ) {
+
+		# undef symbol is forbidden 
+		# in ORIG statement
+		$parse_phase = 2; 
+
+		my $val = parse_expr($get_token);
+
+		$parse_phase = 1;
+
+		if (!defined $val) {
+			error("bad ORIG operand");
+		} else {
+			$loc = $val;
+			debug ", set loc = $val";
+			if (defined $label) {
+				debug ", Install symbol $label with value $loc\n";
+				install_symbol($label, $val);
+			}
+		}
+	} elsif ( $value eq 'ALF' ) {
+		if (defined $label) {
+			debug ", Install symbol $label with value $loc\n";
+			install_symbol($label, $loc);
+		}
+		$loc++;
+	} elsif ( $value eq 'CON' ) {
+		if (defined $label) {
+			debug ", Install symbol $label with value $loc\n";
+			install_symbol($label, $loc);
+		}
+		$loc++;
+	} elsif ( $value eq 'END' ) {
+		$end_of_program = 1;
+	} else {
+		if (!exists $ops->{$value}) {
+			error("undefined op: $value");
+		}
+		if (defined $label) {
+			debug ", Install symbol $label with value $loc\n";
+			install_symbol($label, $loc);
+		}
+		$loc++;
+	}
+	
+	debug "\n";
+	$unget_token = undef;
+}
+
+sub parse_expr
+{
+	my $get_token = shift;
+	my $retval = 0;
+	my ($type, $value) = &$get_token();
+	my $undef_sym_is_seen = 0;
+
+	if ($type eq '-' || $type eq '+') {
+		$unget_token = [$type, $value];
+	} elsif ($type eq '*') {
+		$retval = $loc;
+	} elsif ($type eq 'INTEGER') {
+		$retval = $value;
+	} elsif ($type eq 'SYMBOL') {
+		my $tmp = get_symbol_value($value);
+		if (!defined $tmp) {
+			if ($parse_phase == 1) {
+				$undef_sym_is_seen = 1;
+			} else {
+				error("undefined symbol: '$value'");
+				return;
+			}
+		} else {
+			$retval = $tmp;
+		}
+	} else {
+		error("expecting integer or symbol, but get '$value'");
+		$unget_token = [$type, $value];
+		return;
+	}
+	
+	while ( ($type, $value) = &$get_token() ) {
+		last if !defined $type;
+
+		if (! is_op($type)) {
+			$unget_token = [$type, $value]; 
+			last;
+		} 
+
+		my $op = $value;
+
+		($type, $value) = &$get_token();
+
+		if (!defined $type) {
+			error("operand missing");
+			return;
+		}
+		my $tmp;
+		if ($type eq '*') {
+			$tmp = $loc;		
+		} elsif ($type eq 'INTEGER') {
+			$tmp = $value;
+		} elsif ($type eq 'SYMBOL') {
+			$tmp = get_symbol_value($value);
+			if (!defined $tmp) {
+				if ($parse_phase == 1) {
+					$undef_sym_is_seen = 1;
+				} else {
+					error("undefined symbol: '$value'");
+					return;
+				}
+			}
+		} else {
+			error("expecting integer or symbol, but get '$value'");
+			$unget_token = [$type, $value];
+			return;
+		}
+		next if $undef_sym_is_seen;
+		
+		$retval = do_op($op, $retval, $tmp);
+	}
+	return undef if $undef_sym_is_seen;
+	return $retval;
+}
+
+sub do_op 
+{
+	my ($op, $operand1, $operand2) = @_;
+	return $operand1 + $operand2 if $op eq '+';
+	return $operand1 - $operand2 if $op eq '-';
+	return $operand1 * $operand2 if $op eq '*';
+	return int($operand1 / $operand2) if $op eq '/';
+	if ($op eq '//') {
+		my $tmp = $byte_size * $byte_size * $byte_size * $byte_size * $byte_size;
+		return int(($operand1 * $tmp) / $operand2);
+	}
+	error("bad op: '$op'");
+	return undef;
+}
+
+sub is_op {
+	my $t = @_[0];
+	return $t eq '+' || $t eq '-' || $t eq '*' || $t eq '/' || $t eq '//'; 
+}
+
+# FIXME: local symbol
+sub get_symbol_value
+{
+	my ($sym) = @_;
+
+	if ($sym =~ m/(\d)[fF]/) {
+		my $nearline = -1;
+		my $target = $1 . 'H';
+		foreach (sort keys %{$local_symbols}) {
+			my $tmp = $local_symbols->{$_}->{symbol};
+			if ($tmp eq $target && $_ > $ln) {
+				if ($nearline == -1) {
+					$nearline = $_;
+				} elsif ($_ < $nearline) {
+					$nearline = $_;
+				}
+			}
+		}
+		return undef if $nearline < 0;
+		return $local_symbols->{$nearline}->{value};
+	} elsif ($sym =~ m/(\d)[bB]/) {
+		my $nearline = -1;
+		my $target = $1 . 'H';
+		foreach (sort keys %{$local_symbols}) {
+			my $tmp = $local_symbols->{$_}->{symbol};
+			if ($tmp eq $target && $_ <= $ln) {
+				if ($nearline == -1) {
+					$nearline = $_;
+				} elsif ($_ > $nearline) {
+					$nearline = $_;
+				}
+			}
+		}
+		return undef if $nearline < 0;
+		return $local_symbols->{$nearline}->{value};
+		
+	} else {
+		return undef if !exists $symbols->{$sym};
+		return $symbols->{$sym}->{value};
+	}
+}
+
+sub install_symbol 
+{
+	my ($sym, $value) = @_;
+
+	if ($sym =~ m/\dH/) {
+		$local_symbols->{$ln}->{symbol} = $sym;
+		$local_symbols->{$ln}->{value}  = $value;
+	} else {
+		$symbols->{$sym}->{value} = $value;
+		$symbols->{$sym}->{line}  = $ln;
+	}
+}
+
+sub parse2 
+{
+	my $get_token = tokenizer(shift);
+	my $label;
+
+	$parse_phase = 2;
+	my($type, $value) = &$get_token; 
+	
+	## Check Label field
+
+	if ($type eq 'LABEL') {
+		$label = $value;
+		($type, $value) = &$get_token;
+	}
+	
+	## Op field
+	if ( $value eq 'EQU' ) {
+		if (!exists $symbols->{$label}) { ## Do evaluation
+			my $val = parse_expr($get_token);
+			if (defined $val) {
+				debug "Install symbol $label with value $val\n";
+				$symbols->{$label}->{value} = $val;
+			} else {
+				error("can not determine the value of '$label'");
+			}
+		}
+	} elsif ( $value eq 'ORIG' ) {
+		$loc = parse_expr($get_token);
+	} elsif ( $value eq 'ALF' ) {
+		($type, $value) = &$get_token;
+		if ($type ne 'STRING') {
+			error("expecting string constant, but encounter '$value'");
+		} else {
+			$code->{type} = 'data';
+			$code->{code} = string_to_word($value);
+		}
+		$loc++;
+	} elsif ( $value eq 'CON' ) {
+		my $tmp = parse_expr($get_token);
+		if (!defined $tmp) {
+			error("cannot determine the value of operand");
+		} else {
+			$code->{type} = 'data';
+			$code->{code} = constant_to_word($tmp);
+		}
+		$loc++;
+	} elsif ( $value eq 'END' ) {
+		$end_of_program = 1;
+	} else {
+		my $op = $value;
+		my $c  = $ops->{$op}->{c};
+		my $f  = $ops->{$op}->{f};
+		my $m  = 0;
+		my $i  = 0;
+		my $error = 0;
+		my $create_constant_word = 0;
+
+		($type, $value) = &$get_token();
+		if (defined $type) {
+			if ($type eq '=') {
+				$create_constant_word = 1;	
+			} else {
+				$unget_token = [$type, $value];
+			}
+			my $tmp = parse_expr($get_token);
+
+			if (defined $tmp) {
+				$m = $tmp;
+				($type, $value) = &$get_token();
+			} elsif ($create_constant_word) {
+				$error = 1;
+			}
+
+			if ($create_constant_word) {
+				($type, $value) = &$get_token();
+				$m = $end_loc;
+				$codes->{$end_loc}->{code} = constant_to_word($tmp);
+				$codes->{$end_loc}->{type} = 'data';
+				push @implied_constant_words, {
+					loc =>  $end_loc,
+					code =>	constant_to_word($tmp)
+				};
+				$end_loc++;
+			}
+			if (!$error && $type eq ',') {
+				$tmp = parse_expr($get_token);
+				if (defined $tmp) {
+					$i = $tmp;
+					($type, $value) = &$get_token();
+					if (defined $type) {
+						if ($type eq '(') {
+							$tmp = parse_expr($get_token);
+							if (defined $tmp) {
+								$f = $tmp;
+								($type, $value) = &$get_token();
+								if (!defined $type || $type ne ')') {
+									error("missing ')'");
+									$error = 1;
+								}
+							} else {
+								error("expecting field, unexpected token: '$value'");
+								$error = 1;
+							}
+						} else {
+							error("unexpected token: '$value'");	
+							$error = 1;
+						}
+					}
+				} else {
+					error("unexpected token: '$value'");
+								$error = 1;
+				}
+			} elsif (!$error && $type eq '(') {
+				$tmp = parse_expr($get_token);
+				if (defined $tmp) {
+					$f = $tmp;
+					($type, $value) = &$get_token();
+					if (!defined $type || $type ne ')') {
+						error("unexpected token: '$value'");
+						$error = 1;
+					}
+				} else {
+					error("unexpected token: '$value'");
+					$error = 1;
+				}
+			} elsif ($error) {
+				error("unexpected token: '$value'");
+				$error = 1;
+			}
+		}
+		if (!$error) {
+			my $tmpword = sprintf "%s   %4d %2d %2d %2d", $m>=0?'+':'-', $m>=0?$m:(-$m), $i, $f, $c;
+			$code = { type=>'code', code=>$tmpword };
+		}	
+		$loc++;
+	}
+
+	
+	$unget_token = undef;
+}
+
+sub constant_to_word
+{
+	my ($tmp) = @_;
+	my $sign;
+	my $tmpword = "";
+
+	if ($tmp < 0) {
+		$sign = '-';
+		$tmp  = - $tmp;
+	} else {
+		$sign = '+';
+	}
+	for (1 .. 5) {
+		my $r = $tmp % $byte_size;
+		$tmp = int($tmp/$byte_size);
+		$tmpword = ($r<10?"  ":" ") . $r . $tmpword;
+	}
+	return $sign . " " . $tmpword;
+}
+
+sub string_to_word
+{
+	my ($str) = @_;
+	my $word = "+ ";
+	my $len = length $str;
+	$len = 5 if $len > 5;
+	for ( 0 .. ($len-1) ) {
+		my $ch = substr $str, $_, 1;
+		my $tmp = get_char_code($ch);
+		$word = $word . ($tmp<10?"  ":" ") . $tmp;
+	}
+	for ( $len .. 4 ) {
+		$word = $word . "  0";
+	}
+	return $word;
+}
+
+
+sub get_char_code 
+{ 
+	my ($ch) = @_;
+	my $charset = " ABCDEFGHI^JKLMNOPQR^^STUVWXYZ0123456789.,()+-*/=\$<>@;:'";
+	return index($charset, $ch); 
+}
+
+
+sub tokenizer
+{
+	my $src = shift;
+	return sub { 
+		if (defined $unget_token) {
+			my @tok = @$unget_token;
+			$unget_token = undef;
+			return @tok;
+		}
+	TOKEN: {
+		return ( 'LABEL', $1 )    if $src =~ /^(\w+)/gcx;
+		return ( 'INTEGER', $1*8+$2) if $src =~ /\G(\d+\:\d+)/gcx;
+		return ( 'INTEGER', $1 )  if $src =~ /\G(\d+)\b/gcx;
+		return ( 'SYMBOL', $1 )   if $src =~ /\G(\w+)/gcx;
+		return ( '+', $1 )        if $src =~ /\G(\+)/gcx;
+		return ( '-', $1 )        if $src =~ /\G(\-)/gcx;
+		return ( '*', $1 )        if $src =~ /\G(\*)/gcx;
+		return ( '//', $1 )       if $src =~ /\G(\/\/)/gcx;
+		return ( '/', $1 )        if $src =~ /\G(\/)/gcx;
+		return ( '(', $1 )        if $src =~ /\G(\()/gcx;
+		return ( ')', $1 )        if $src =~ /\G(\))/gcx;
+		return ( '=', $1 )        if $src =~ /\G(\=)/gcx;
+		return ( ',', $1)         if $src =~ /\G(,)/gcx;
+		return ( 'STRING', $1)    if $src =~ /\G\"([^\"]*)\"/gcx; 
+		redo TOKEN                if $src =~ /\G\s+/gcx;
+		return ( 'UNKOWN', $1 )   if $src =~ /\G(.)/gcx;
+		return;
+	} };
+}
+
+
+sub error 
+{ 
+	print STDERR "Error: $srcfile: Line $ln: ";
+	print STDERR $_ foreach @_;
+	print STDERR "\n";
+	$error_count++;
+}
+
+sub print_symbols 
+{
+	foreach (keys %{$symbols}) {
+		print "$_ = ", $symbols->{$_}->{value}, ", defined at line ", $symbols->{$_}->{line}, "\n";
+	}
+	foreach (sort keys %{$local_symbols}) {
+		print "Line $_: ", $local_symbols->{$_}->{symbol}, " = ", $local_symbols->{$_}->{value}, "\n";
+	}
+}
+

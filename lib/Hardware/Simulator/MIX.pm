@@ -17,7 +17,7 @@ our @EXPORT    = qw(
 	get_pc
 	get_cmp_flag );
 
-our $VERSION   = 0.02;
+our $VERSION   = 0.03;
 
 my $max_byte = 64;
 

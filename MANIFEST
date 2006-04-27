@@ -2,10 +2,11 @@ Makefile.PL
 Build.PL
 lib/Hardware/Simulator/MIX.pm
 mixsim.pl
+mixasm.pl
 MANIFEST
 README
 META.yml
 t/basic.t
 t/charset.t
 t/mem.t
-
+t/primes.mixal

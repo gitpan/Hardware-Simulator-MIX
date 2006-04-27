@@ -19,5 +19,6 @@ perl Build install
 CHANGE LOG
 ==========
 
+0.03: add mixasm.pl
 0.02: add load operations, display registers and flags
 0.01: basic reset, only halt instruction
