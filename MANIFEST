@@ -9,4 +9,8 @@ META.yml
 t/basic.t
 t/charset.t
 t/mem.t
+t/inst.t
 t/primes.mixal
+t/arith.t
+t/load.t
+t/store.t

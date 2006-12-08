@@ -1,9 +1,12 @@
+use File::Basename;
 use Data::Dumper;
 
 my $error_count = 0;
 my $ln = 0;
 my $loc = 0;
 my $srcfile;
+my $lstfile;
+my $mixfile;
 my $symbols = {};
 my $local_symbols = {};
 my $unget_token = undef;
@@ -14,8 +17,128 @@ my $end_loc = 0;
 my $code = undef;
 my $codes = {};
 my @implied_constant_words = ();
+my $optable = {};
 
-my $ops = {
+
+init_optable();
+
+if (@ARGV != 1) 
+{
+	print STDERR "Usage: perl mixasm.pl <file.mixal>";
+	exit(1);
+}
+$srcfile = shift @ARGV;
+my ($base, $path, $type) = fileparse($srcfile, qr{\..*});
+$lstfile = $base . ".lst";
+$mixfile = $base . ".mix";
+
+
+########################################################################
+## PARSE PHASE I
+########################################################################
+
+open FILE, "<$srcfile" || die "can't open $srcfile";
+
+while (<FILE>) 
+{
+	$ln++;
+	chop;
+#	printf "%04d: %s\n", $ln, $_;
+	next if m/^\s*$/;
+	next if m/^\*/;
+	parse1($_);
+	last if $end_of_program;
+}
+
+if ($error_count > 0) 
+{
+	print STDERR "MIXASM: $error_count errors found.";
+	close FILE;
+	exit(1);
+}
+
+
+########################################################################
+## PARSE PHASE II
+########################################################################
+
+seek FILE, 0, 0; ## rewind
+
+open LSTFILE, ">$lstfile" || die "Can not open $lstfile for write";
+
+$end_of_program = 0;
+$end_loc = $loc;
+$ln = 0;
+$loc = 0;
+my $currloc;
+while (<FILE>) {
+	my $srcline = $_;
+	$ln++;
+	$code = undef;
+	$currloc = $loc;
+	chop;
+
+	my $empty = 0;
+	$empty = 1 if m/^\s*$/;
+	$empty = 1 if m/^\*/;
+	parse2($_) if !$empty;
+
+	if (defined $code) {
+	#	print Dumper $code;
+		printf LSTFILE "%04d: %s ", $currloc, $code->{code};
+		$codes->{$currloc} = $code;
+	} else {
+		print  LSTFILE ' ' x 24;
+	}
+	printf LSTFILE "  %4d  ", $ln;
+	print LSTFILE $srcline;
+
+	last if $end_of_program;
+}
+
+foreach (@implied_constant_words) {
+	printf LSTFILE "%04d: %s \n", $_->{loc}, $_->{code};
+}
+
+close FILE;
+close LSTFILE;
+
+if ($error_count > 0) {
+	print STDERR "MIXASM: $error_count errors found.";
+	exit(1);
+}
+
+########################################################################
+# Generating MIX Code
+########################################################################
+
+open MIXFILE, ">$mixfile" || die "can not open $mixfile for write";
+
+for ( sort keys %{$codes} ) {
+	if ($codes->{$_}->{type} eq 'code') {
+		my $word = code_to_data_word($codes->{$_}->{code});
+		printf MIXFILE "%04d: %s\n", $_, $word;
+	}
+}
+print MIXFILE "\n\n";
+for ( sort keys %{$codes} ) {
+	if ($codes->{$_}->{type} eq 'data') {
+		my $word = $codes->{$_}->{code};
+		printf MIXFILE "%04d: %s\n", $_, $word;
+	}
+}
+close MIXFILE;
+exit(0);
+
+########################################################################
+# Subroutines
+########################################################################
+
+sub debug {return; print $_ foreach @_ }
+
+sub init_optable
+{
+$optable = {
 	NOP  => { c => 0, f => 1, t => 1 },
 	ADD  => { c => 1, f => 5, t => 2 },
 	FADD => { c => 1, f => 6, t => 2 },
@@ -181,78 +304,9 @@ my $ops = {
 	CMP4 => { c =>60, f => 5, t => 2 },
 	CMP5 => { c =>61, f => 5, t => 2 },
 	CMP6 => { c =>62, f => 5, t => 2 },
-	CMPX => { c =>63, f => 5, t => 2 },
-	
+	CMPX => { c =>63, f => 5, t => 2 }
 };
-
-sub debug {return; print $_ foreach @_ }
-
-$srcfile = shift @ARGV;
-open FILE, "<$srcfile" || die "can't open $srcfile";
-while (<FILE>) {
-	$ln++;
-	chop;
-#	printf "%04d: %s\n", $ln, $_;
-	next if m/^\s*$/;
-	next if m/^\*/;
-	parse1($_);
-	last if $end_of_program;
 }
-if ($error_count > 0) {
-	print STDERR "MIXASM: $error_count errors found.";
-	close FILE;
-	exit(1);
-}
-
-
-
-########################################################################
-## PARSE PHASE II
-########################################################################
-
-seek FILE, 0, 0; ## rewind
-
-$end_of_program = 0;
-$end_loc = $loc;
-$ln = 0;
-$loc = 0;
-my $currloc;
-while (<FILE>) {
-	my $srcline = $_;
-	$ln++;
-	$code = undef;
-	$currloc = $loc;
-	chop;
-
-	my $empty = 0;
-	$empty = 1 if m/^\s*$/;
-	$empty = 1 if m/^\*/;
-	parse2($_) if !$empty;
-
-	if (defined $code) {
-	#	print Dumper $code;
-		printf "%04d: %s ", $currloc, $code->{code};
-	} else {
-		print ' ' x 24;
-	}
-	printf "  %4d  ", $ln;
-	print $srcline;
-
-	last if $end_of_program;
-}
-
-foreach (@implied_constant_words) {
-	printf "%04d: %s \n", $_->{loc}, $_->{code};
-}
-
-close FILE;
-
-
-if ($error_count > 0) {
-	print STDERR "MIXASM: $error_count errors found.";
-	exit(1);
-}
-
 
 sub parse1 
 {
@@ -331,7 +385,7 @@ sub parse1
 	} elsif ( $value eq 'END' ) {
 		$end_of_program = 1;
 	} else {
-		if (!exists $ops->{$value}) {
+		if (!exists $optable->{$value}) {
 			error("undefined op: $value");
 		}
 		if (defined $label) {
@@ -545,8 +599,8 @@ sub parse2
 		$end_of_program = 1;
 	} else {
 		my $op = $value;
-		my $c  = $ops->{$op}->{c};
-		my $f  = $ops->{$op}->{f};
+		my $c  = $optable->{$op}->{c};
+		my $f  = $optable->{$op}->{f};
 		my $m  = 0;
 		my $i  = 0;
 		my $error = 0;
@@ -730,4 +784,33 @@ sub print_symbols
 		print "Line $_: ", $local_symbols->{$_}->{symbol}, " = ", $local_symbols->{$_}->{value}, "\n";
 	}
 }
+
+sub code_to_data_word
+{
+	my ($w) = @_;
+	my @w = split /\s+/, $w;
+	return sprintf "%s  %2d %2d %2d %2d %2d", 
+		$w[0], 
+		int($w[1] / $byte_size), 
+		$w[1] % $byte_size, 
+		$w[2], $w[3], $w[4];
+}
+
+__END__
+
+=head1 SYNOPSIS
+
+    perl mixasm.pl <inputfile>
+
+=head1 DESCRIPTION
+
+whitespaces are important in MIXAL programs.
+They are used for separating label from op, and op from operands.
+There should be no spaces in operand field. 
+
+e.g.
+
+    CHANGEM   ENT2  0,3    => OK
+    CHANGEM   ENT2  0, 3   => ERROR
+
 

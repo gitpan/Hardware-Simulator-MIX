@@ -19,6 +19,13 @@ perl Build install
 CHANGE LOG
 ==========
 
+
+0.04: 
+    - Apr. 2006: mixsim.pl: add a command line user interface
+               : mixasm.pl: add generate code 
+
+    - Nov. 2006: create test cases; fix some bugs
+
 0.03: add mixasm.pl
 0.02: add load operations, display registers and flags
 0.01: basic reset, only halt instruction
