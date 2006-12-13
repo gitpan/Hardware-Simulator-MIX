@@ -18,7 +18,7 @@ our @EXPORT    = qw(
 	get_pc
 	get_cmp_flag );
 
-our $VERSION   = 0.04;
+our $VERSION   = 0.05;
 
 sub new 
 {
@@ -60,14 +60,31 @@ sub reset
 	for (0 .. 3999) {
 		push @{$self->{mem}}, ['+', 0, 0, 0, 0, 0];
 	}
+	
+	$self->{in_cards}  = [] if !exists $self->{in_cards};
+
+
+
+	$self->{out_cards} = [];
+	$self->{printer}   = [];
 
 	$self->{clk_count} = 0;
 	$self->{pc}        = 0;
-	$self->{pc_next}   = 0;
+	$self->{next_pc}   = 0;
 	$self->{ov_flag}   = 0;
 	$self->{cmp_flag}  = 0;
 	$self->{status}    = 0;
 	$self->{message}   = 'running';
+}
+
+sub go
+{
+	my ($self) = @_;
+
+	$self->load_card(0);
+	while ($self->{status} == 0) {
+		$self->step();
+	}
 }
 
 sub get_overflow
@@ -102,10 +119,13 @@ sub step
 {
 	my $self = shift;
 
+	my @regname = qw(rA rI1 rI2 rI3 rI4 rI5 rI6 rX);
+
 	return if $self->{status} != 0;
 
 	# Fetch instruction
-	my $loc = $self->{pc} = $self->{pc_next};
+	my $loc = $self->{pc} = $self->{next_pc};
+
 	my @word = $self->read_mem($loc);
 	return if $self->{status} != 0;
 
@@ -121,7 +141,7 @@ sub step
 		$m += $self->get_reg('rI' . $i);
 	}
 	
-	$self->{pc_next} = $self->{pc} + 1;
+	$self->{next_pc} = $self->{pc} + 1;
 	if ( $c == 5 && $f == 2) { ## HLT: the machine stops
 		$self->{status} = 1;
 		$self->{message} = 'halts normally';
@@ -170,12 +190,274 @@ sub step
 	} elsif ($c == 4 && $f != 6) { ## DIV
 		my @tmp = $self->read_mem($m, $l, $r);
 		$self->div(\@tmp);
+	} elsif (48 <= $c && $c <= 55) { 
+		my $reg = $self->{$regname[$c-48]};
+		if ($f == 0) { ## INC
+			my $v = word_to_int($reg, $self->{max_byte});
+			if (int_to_word($v+$m, $reg, $self->{max_byte})) {
+				$self->{ov_flag} = 0;
+			} else {
+				$self->{ov_flag} = 1;
+			}
+		} elsif ($f == 1) { ## DEC
+			my $v = word_to_int($reg, $self->{max_byte});
+			if (int_to_word($v-$m, $reg, $self->{max_byte})) {
+				$self->{ov_flag} = 0;
+			} else {
+				$self->{ov_flag} = 1;
+			}
+		} elsif ($f == 2) { ##ENT
+			int_to_word($m, $reg, $self->{max_byte});
+		} elsif ($f == 3) { ##ENN
+			int_to_word(-$m, $reg, $self->{max_byte});
+		} else {
+			goto  ERROR_INST;
+		}
+	} elsif (56 <= $c && $c <= 63) { ## CMP
+		my $tmp1 = $self->get_reg($regname[$c-56], $l, $r);
+		my $tmp2 = $self->read_mem($m, $l, $r);
+		$self->{cmp_flag} = $tmp1 - $tmp2;
+	} elsif ($c == 39) { ## JMP ON CONDITION
+		goto ERROR_INST if $f > 9;
+		my $ok   = 1;
+		my $savj = 0;
+		my $cf   = $self->{cmp_flag};
+		my @cond = ($cf<0,$cf==0,$cf>0,$cf>=0,$cf!=0,$cf<=0);
+
+		if ($f == 0) {
+                        $ok = 1;
+                }elsif ($f == 1) {
+			$savj = 1;
+		} elsif ($f == 2) {
+			$ok = $self->{ov_flag};
+		} elsif ($f == 3) {
+			$ok = !$self->{ov_flag};
+		} else {
+			$ok = $cond[$f-4];
+		}
+
+		if ($ok) {
+			if (!$savj) {
+				int_to_word($self->{next_pc}, $self->{rJ}, $self->{max_byte});
+			}
+			$self->{next_pc} = $m;
+		}
+	} elsif (40 <= $c && $c <= 47) {
+		goto ERROR_INST if $f > 5;
+		my $val = $self->get_reg($regname[$c-40]);
+		my @cond = ($val<0,$val==0,$val>0,$val>=0,$val!=0,$val<=0);
+		if ($cond[$f]) {
+			int_to_word($self->{next_pc}, $self->{rJ}, $self->{max_byte});
+			$self->{next_pc} = $m;
+		}
+	} elsif ($c == 7) {
+		my $dest = $self->get_reg('rI1');
+		for (my $i = 0; $i < $f; $i++, $m++, $dest++) {
+			my @w = $self->read_mem($m);
+			$self->write_mem($dest, \@w);
+		}
+		my @tmp = ('+', 0,0,0,0,0);
+		int_to_word($dest, \@tmp, $self->{max_byte});
+		$self->set_reg('rI1', \@tmp);
+	} elsif ($c == 6) { ## Shift Operators
+		goto ERROR_INST if $m < 0;
+
+		my @a = @{$self->{rA}};
+		my @x = @{$self->{rX}};
+		my $sa = shift @a;
+		my $sx = shift @x;
+		if ($f == 0) { ## SLA
+			$m = $m%5;
+			while (--$m >= 0) {
+				shift @a;
+				push @a, 0;
+			}
+		} elsif ($f == 1) { ## SRA
+			$m = $m%5;
+			while (--$m >= 0) {
+				pop @a;
+				unshift @a, 0;
+			}
+		} elsif ($f == 2) { ## SLAX
+			$m = $m%10;
+			while (--$m >= 0) {
+				shift @a;
+				push @a, shift @x;
+				push @x, 0;
+			}
+		} elsif ($f == 3) { ## SRAX
+			$m = $m%10;
+			while (--$m >= 0) {
+				pop @x;
+				unshift @x, pop @a;
+				unshift @a, 0;
+			}
+		} elsif ($f == 4) { ## SLC
+			$m = $m%10;
+			while (--$m >= 0) {
+				push @a, shift @x;
+				push @x, shift @a;
+			}
+		} elsif ($f == 5) { ## SRC
+			$m = $m%10;
+			while (--$m >= 0) {
+				unshift @a, pop @x;
+				unshift @x, pop @a;
+			}
+		} else {
+			goto ERROR_INST;
+		}
+		unshift @a, $sa;
+		unshift @x, $sx;
+		$self->set_reg('rA', \@a);
+		$self->set_reg('rX', \@x);
+	} elsif ($c == 5 && $f == 0) { ## NUM
+		my @a = @{$self->{rA}};
+		my @x = @{$self->{rX}};
+		my $m = $self->{max_byte};
+		my $M = $m*$m*$m*$m*$m;
+		my $sa = shift @a;
+		shift @x;
+		push @a, @x;
+		my $val = 0;
+		while (@a) {
+			my $d = shift @a;
+			$val = $val*10+($d % 10);
+		}
+		if ($val >= $M) {
+			$val = $val % $M;
+			$self->{ov_flag} = 1;
+		} else {
+			$self->{ov_flag} = 0;
+		}
+		int_to_word($val, $self->{rA}, $m);
+		@{$self->{rA}}[0] = $sa;
+	} elsif ($c == 5 && $f == 1) { ## CHAR
+		my $val = word_to_uint($self->{rA}, $self->{max_byte});
+		my $i;
+		for ($i = 5; $i >= 1; $i--) {
+			@{$self->{rX}}[$i] = 30 + $val%10;
+			$val = int($val/10);
+		}
+		for ($i = 5; $i >= 1; $i--) {
+			@{$self->{rA}}[$i] = 30 + $val%10;
+			$val = int($val/10);
+		}
+	} elsif ($c == 36) {
+		if ($f == 16) { ## CARD READER
+		    $self->load_card($m);
+		} else {
+		    $self->{status} = 2;
+		    $self->{message} = "input device(#$f) not supported at $loc";
+		}
+	} elsif ($c == 37) {
+		if ($f == 17) { ## CARD Punch
+		    $self->punch_card($m);
+		} elsif ($f == 18)  { ## Printer
+		    $self->print_line($m);
+		} else {
+		    $self->{status} = 2;
+		    $self->{message} = "output device(#$f) not supported at $loc";
+		}
+	} elsif ($c == 35) {
+		if ($f == 18) { ## Printer: set up new page
+			$self->new_page($m);
+		} else {
+		    $self->{status} = 2;
+		    $self->{message} = "ioctrl for device(#$f) not supported at $loc";
+		}
+	} elsif ($c == 34) { ## JBUS: Always no busy
+	} elsif ($c == 38) { ## JRED: Jump immediately		
+		int_to_word($self->{next_pc}, $self->{rJ}, $self->{max_byte});
+		$self->{next_pc} = $m;
 	} else {
+ERROR_INST:
 		$self->{status} = 2;
-		$self->{message} = "Unknown instruction: loc $loc:" . word_to_string(@word);
+		$self->{message} = "invalid instruction at $loc";
 	}
 }
 
+sub load_card {
+	my ($self, $loc) = @_;
+	my $crds = $self->{in_cards};
+	if (@{$crds}==0) {
+		$self->{status} = 2;
+		$self->{message} = "missing cards";
+	} else {
+		my $crd = shift @{$crds};
+		if (length($crd)!=80) {
+			$crd .= " " x (80-length($crd));
+		}
+		my @w = ('+');
+		for (my $i = 0; $i < 80; $i++) {
+			my $c = mix_char_code( substr($crd,$i,1) );
+			if ($c == -1) {
+			    $self->{status} = 2;
+			    $self->{message} = "invalid card: '$crd'";
+			} else {
+			    push @w, $c;
+			    if (@w == 6) {
+			    	$self->write_mem($loc++, \@w);
+				@w = ('+');
+			    }
+                        }
+		}
+	}
+}
+
+sub punch_card {
+	my ($self, $loc) = @_;
+	my $crd;
+
+	for (my $i = 0; $i < 16; $i++) {
+		my @w = $self->read_mem($loc++);
+		shift @w;
+		while (@w) {
+			my $ch = mix_char(shift @w);
+			if (defined $ch) {
+				$crd .= $ch; 
+			} else {
+				$crd .= "^";
+			}
+		}
+	}
+
+	push @{$self->{out_cards}}, $crd;
+}
+
+sub print_line {
+	my ($self, $loc) = @_;
+
+	my $page = pop @{$self->{printer}};
+	$page = "" if !defined $page;
+
+	my $line;
+	for (my $i = 0; $i < 24; $i++) {
+		my @w = $self->read_mem($loc++);
+		shift @w;
+		while (@w) {
+			my $ch = mix_char(shift @w);
+			if (defined $ch) {
+				$line .= $ch; 
+			} else {
+				$line .= "^";
+			}
+		}
+	}
+	$line =~ s/\s+$//;
+	$page .= $line . "\n";
+	push @{$self->{printer}}, $page;
+}
+
+sub new_page {
+	my ($self, $m) = @_;
+	if ($m == 0) {
+		push @{$self->{printer}}, "";
+	} else {
+		$self->{status} = 2;
+		$self->{message} = "printer ioctrl error: M should be zero";
+	}
+}
 
 sub print_all_regs {
 	my ($self) = @_;
@@ -198,7 +480,7 @@ sub print_all_regs {
 	$self->print_reg('rI6');
 	print "\n rJ: ";
 	$self->print_reg('rJ');
-	print "\nPC = ", $self->{pc}, "  NEXT = ", $self->{pc_next};
+	print "\nPC = ", $self->{pc}, "  NEXT = ", $self->{next_pc};
 	print "  ", $self->{ov_flag}?'OV':'NO';
 	if ($self->{cmp_flag} > 0) {
 		print " GT",
@@ -230,16 +512,30 @@ sub clear_status {
 
 sub get_reg
 {
-	my ($self, $reg) = @_;
+	my ($self, $reg, $l, $r) = @_;
 
 	if (!exists $self->{$reg}) {
 		$self->{status} = 2;
 		$self->{message} = "accessing non-existed reg: $reg";
-		return;
+		return undef;
 	}
-	my $r = $self->{$reg};
-	my $value = word_to_int($r, $self->{max_byte});
-	return wantarray? @{$r}:$value;
+
+	if (defined $l) {
+		$r = $l if !defined $r;
+	} else {
+		$l = 0;
+		$r = 5;
+	}
+
+	my @word = @{$self->{$reg}};
+	my @retval = ();
+
+	for ($l .. $r) {
+		push @retval, $word[$_]
+	}
+	@retval = fix_word(@retval);
+	my $value = word_to_int(\@retval, $self->{max_byte});
+	return wantarray? @retval : $value;
 }
 
 sub set_reg
@@ -284,7 +580,6 @@ sub read_mem
 	}
 
 	my @word = @{@{$self->{mem}}[$loc]};
-	debug("get word from loc#$loc ", word_to_string(@word));
 	if (defined $l) 
 	{
 		$r = $l if !defined $r;
@@ -440,6 +735,25 @@ sub div
 ########################################################################
 # Utilities
 ########################################################################
+
+sub get_dev_name {
+	my ($unit) = @_;
+	if ($unit >= 0 && $unit <= 7) {
+		return "Tape $unit";
+	} elsif ($unit >= 8 && $unit <= 15) {
+		return "Disk/Drum $unit";
+	} elsif ($unit == 16) {
+		return "Card reader";
+	} elsif ($unit == 17) {
+		return "Card punch";
+	} elsif ($unit == 18) {
+		return "Printer";
+	} elsif ($unit == 19) {
+		return "Typewriter and paper tape";
+	} else {
+		return "Null Device";
+	}
+}
 
 sub fix_word
 {

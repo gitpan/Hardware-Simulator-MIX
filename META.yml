@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name: Hardware-Simulator-MIX
-version: 0.04
+version: 0.05
 author:
   - Chaoji Li <lichaoji@ict.ac.cn>
 abstract: Knuth's famous virtual machine

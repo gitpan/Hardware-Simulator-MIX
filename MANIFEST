@@ -5,12 +5,16 @@ mixsim.pl
 mixasm.pl
 MANIFEST
 README
+TODO
 META.yml
 t/basic.t
 t/charset.t
 t/mem.t
 t/inst.t
-t/primes.mixal
 t/arith.t
 t/load.t
 t/store.t
+utils/gen_loader.pl
+mixal/primes
+mixal/loader
+doc/mix_rfc.txt

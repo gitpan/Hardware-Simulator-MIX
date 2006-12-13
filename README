@@ -1,13 +1,18 @@
+====== Revised: Dec 13, 2006,  Chaoji Li<lichaoji@ict.ac.cn> ===========
 
 There are some other MIX simulators in the world, but none of them
 is in Perl. 
 
 That's why I start to write this one. 
 
-There is a long way to go.
+It supports almost all instructions, except support for tape and disk,
+and float operations.
 
-INSTALL
-=======
+Card reader/punch and printer are supported.
+
+========================================================================
+ I N S T A L L
+========================================================================
 
 In windows:
 
@@ -16,9 +21,74 @@ perl Build
 perl Build test
 perl Build install
 
-CHANGE LOG
-==========
+========================================================================
+ Q U I C K   S T A R T
+========================================================================
 
+In the package directory, 
+
+>perl mixasm.pl mixal/primes
+
+Three files will be generated in the current directory.
+
+   * primes.lst -- listing files
+   * primes.mix -- memory dump file
+   * primes.crd -- card deck file which can be loaded by mix simulator
+
+>perl mixsim.pl --batch --incards=primes.crd
+
+The outputs are:
+
+== PAGE 1 OF 1 ==
+FIRST FIVE HUNDRED PRIMES
+     0002 0233 0547 0877 1229 1597 1993 2371 2749 3187
+     ...
+     0229 0541 0863 1223 1583 1987 2357 2741 3181 3571     
+
+You can also enter the interactive mode. An example session is
+shown below.
+
+>perl mixsim.pl --incards=primes.crd
+
+
+    M I X   S i m u l a t o r
+
+Type 'h' for help messages.
+MIX> g 3000
+ rA: + 00 00 00 00 00  rX: + 00 33 30 30 30
+rI1: + 00 00 00 00 00  rI2: - 00 00 00 00 30
+rI3: + 00 00 00 46 56  rI4: + 00 00 00 00 00
+rI5: + 00 00 00 00 00  rI6: + 00 00 00 00 00
+ rJ: + 00 00 00 00 14
+PC = 13  NEXT = 3000  NO EQ OK
+Previous inst: + 0 0 3 1 40
+    Next inst: + 0 0 0 18 35
+MIX> g 3029
+ rA: + 30 30 30 30 30  rX: + 30 30 32 32 39
+rI1: + 00 00 00 00 00  rI2: + 00 00 00 55 51
+rI3: + 00 00 00 00 19  rI4: + 00 00 00 31 51
+rI5: + 00 00 00 00 00  rI6: + 00 00 00 00 00
+ rJ: + 00 00 00 47 18
+PC = 3028  NEXT = 3029  NO LT OK
+Previous inst: + 47 11 0 0 45
+    Next inst: + 0 0 0 2 5
+MIX> prt
+Page 1 of 1
+FIRST FIVE HUNDRED PRIMES
+     0002 0233 0547 0877 1229 1597 1993 2371 2749 3187
+     ....
+     0229 0541 0863 1223 1583 1987 2357 2741 3181 3571
+MIX>
+
+
+========================================================================
+ C H A N G E   L O G
+========================================================================
+
+0.05: Dec 13, 2006
+
+    - support full instructions
+    - support only part of the io devices(card reader/punch, printer)
 
 0.04: 
     - Apr. 2006: mixsim.pl: add a command line user interface

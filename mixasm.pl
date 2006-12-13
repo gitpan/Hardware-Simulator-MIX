@@ -7,6 +7,7 @@ my $loc = 0;
 my $srcfile;
 my $lstfile;
 my $mixfile;
+my $crdfile;
 my $symbols = {};
 my $local_symbols = {};
 my $unget_token = undef;
@@ -18,7 +19,7 @@ my $code = undef;
 my $codes = {};
 my @implied_constant_words = ();
 my $optable = {};
-
+my $program_entry = -1;
 
 init_optable();
 
@@ -31,6 +32,7 @@ $srcfile = shift @ARGV;
 my ($base, $path, $type) = fileparse($srcfile, qr{\..*});
 $lstfile = $base . ".lst";
 $mixfile = $base . ".mix";
+$crdfile = $base . ".crd";
 
 
 ########################################################################
@@ -114,20 +116,117 @@ if ($error_count > 0) {
 
 open MIXFILE, ">$mixfile" || die "can not open $mixfile for write";
 
-for ( sort keys %{$codes} ) {
+for ( sort {$a <=> $b} keys %{$codes} ) {
 	if ($codes->{$_}->{type} eq 'code') {
 		my $word = code_to_data_word($codes->{$_}->{code});
-		printf MIXFILE "%04d: %s\n", $_, $word;
+		my @w = split /\s+/, $word;
+		printf MIXFILE "%04d: %s  [%s]\n", $_, $word, word_to_string(@w);
 	}
 }
 print MIXFILE "\n\n";
-for ( sort keys %{$codes} ) {
+for ( sort {$a <=> $b} keys %{$codes} ) {
 	if ($codes->{$_}->{type} eq 'data') {
 		my $word = $codes->{$_}->{code};
-		printf MIXFILE "%04d: %s\n", $_, $word;
+		my @w = split /\s+/, $word;
+		printf MIXFILE "%04d: %s  [%s]\n", $_, $word, word_to_string(@w);
 	}
 }
 close MIXFILE;
+
+
+########################################################################
+# Generating Card deck
+########################################################################
+
+open CRDFILE, ">$crdfile" || die "can not open $crdfile for write";
+
+my @locs = sort {$a <=> $b} keys %{$codes};
+my @cardbuf = ();
+while (@locs) {
+	if (@cardbuf == 0) {
+		push @cardbuf, shift @locs;
+	} else {
+		if ($cardbuf[0] == $locs[0]-1 && @cardbuf < 7) {
+			unshift @cardbuf, shift @locs;
+		} else {
+			print CRDFILE gen_card(@cardbuf), "\n";
+			@cardbuf = ();
+			unshift @cardbuf, shift @locs;
+		}
+	}
+}
+
+if (@cardbuf != 0) {
+	print CRDFILE gen_card(@cardbuf), "\n";
+}
+
+if ($program_entry >= 0 && $program_entry <= 3999) {
+	print CRDFILE sprintf("TRANS0%04d\n", $program_entry);
+}
+
+close CRDFILE;
+
+sub gen_card {
+	my @locs = @_;
+	my $n = @locs;
+	my $i = $n - 1;
+
+	my $crd;
+	
+	if ($codes->{$locs[$i]}->{type} eq 'code') {
+		$crd = sprintf("CODE %d%04d", $n, $locs[$i]);
+	} else {
+		$crd = sprintf("DATA %d%04d", $n, $locs[$i]);
+	}
+
+	my @chars     = qw(0 1 2 3 4 5 6 7 8 9);
+	my @neg_chars = (" ", "A", "B", "C", "D", "E", "F", "G", "H", "I");
+	for (; $i >= 0; $i--) {
+		my @w = split /\s+/, $codes->{$locs[$i]}->{code};
+		my $sign = shift @w;
+
+	        if ($codes->{$locs[$i]}->{type} eq 'code') {
+                    my $val = shift @w;
+                    unshift @w, $val%$byte_size;
+                    unshift @w, int($val/$byte_size);
+                }
+
+                my $val = 0;
+                my $j;
+
+                for ($j = 0; $j < 5; $j++) {
+                    $val = $val * $byte_size + $w[$j];
+                }
+                my $tmp = "";
+                for ($j = 0; $j < 10; $j++) {
+                    if ($j == 0 && $sign eq '-') {
+                        $tmp = @neg_chars[$val % 10] . $tmp;
+                    } else {
+                        $tmp = @chars[$val % 10] . $tmp;
+                    }
+                    $val = int($val/10);
+                }
+                $crd .= $tmp;
+=comment
+		my $j = 0;
+		for (; $j < 5; $j++) {
+			my $bt = $w[$j];
+			my $h = int($bt/10);
+			my $l = $bt%10;
+			$crd .= @chars[$h];
+			if ($j == 5 && $sign eq '-') {
+				$crd .= @neg_chars[$l];
+			} else {
+				$crd .= @chars[$l];
+			}
+		}
+=cut
+	}
+	return $crd;
+}
+
+
+
 exit(0);
 
 ########################################################################
@@ -383,6 +482,10 @@ sub parse1
 		}
 		$loc++;
 	} elsif ( $value eq 'END' ) {
+		my $val = parse_expr($get_token);
+		if (defined $val) {
+			$program_entry = $val;
+		}
 		$end_of_program = 1;
 	} else {
 		if (!exists $optable->{$value}) {
@@ -551,7 +654,8 @@ sub install_symbol
 
 sub parse2 
 {
-	my $get_token = tokenizer(shift);
+	my $src = shift;
+	my $get_token = tokenizer($src);
 	my $label;
 
 	$parse_phase = 2;
@@ -578,12 +682,11 @@ sub parse2
 	} elsif ( $value eq 'ORIG' ) {
 		$loc = parse_expr($get_token);
 	} elsif ( $value eq 'ALF' ) {
-		($type, $value) = &$get_token;
-		if ($type ne 'STRING') {
-			error("expecting string constant, but encounter '$value'");
+		if (length($src) < 21) {
+			error("error ALF instruction, no enough chars");
 		} else {
 			$code->{type} = 'data';
-			$code->{code} = string_to_word($value);
+			$code->{code} = string_to_word(substr($src, 16, 5));
 		}
 		$loc++;
 	} elsif ( $value eq 'CON' ) {
@@ -735,6 +838,13 @@ sub get_char_code
 	return index($charset, $ch); 
 }
 
+sub code_to_char 
+{ 
+	my $charset = " ABCDEFGHI^JKLMNOPQR^^STUVWXYZ0123456789.,()+-*/=\$<>@;:'";
+	return undef if $_[0] < 0 || $_[0] >= length($charset);
+	return substr($charset, $_[0], 1);
+}
+
 
 sub tokenizer
 {
@@ -747,7 +857,7 @@ sub tokenizer
 		}
 	TOKEN: {
 		return ( 'LABEL', $1 )    if $src =~ /^(\w+)/gcx;
-		return ( 'INTEGER', $1*8+$2) if $src =~ /\G(\d+\:\d+)/gcx;
+		return ( 'INTEGER', $1*8+$2) if $src =~ /\G(\d+)\:(\d+)/gcx;
 		return ( 'INTEGER', $1 )  if $src =~ /\G(\d+)\b/gcx;
 		return ( 'SYMBOL', $1 )   if $src =~ /\G(\w+)/gcx;
 		return ( '+', $1 )        if $src =~ /\G(\+)/gcx;
@@ -783,6 +893,22 @@ sub print_symbols
 	foreach (sort keys %{$local_symbols}) {
 		print "Line $_: ", $local_symbols->{$_}->{symbol}, " = ", $local_symbols->{$_}->{value}, "\n";
 	}
+}
+
+sub word_to_string
+{
+	my $retval = "";
+	my @w = @_;
+	foreach (@w) {
+		next if ($_ eq '+' || $_ eq '-');
+		my $c = code_to_char($_);
+		if (defined $c) {
+			$retval .= $c;
+		} else {
+			$retval .= "?";
+		}
+	}
+	return $retval;
 }
 
 sub code_to_data_word
