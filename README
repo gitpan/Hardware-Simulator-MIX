@@ -1,14 +1,14 @@
-====== Revised: Dec 13, 2006,  Chaoji Li<lichaoji@ict.ac.cn> ===========
+====== Revised: Jan 14, 2007,  Chaoji Li<lichaoji@ict.ac.cn> ===========
 
 There are some other MIX simulators in the world, but none of them
 is in Perl. 
 
 That's why I start to write this one. 
 
-It supports almost all instructions, except support for tape and disk,
-and float operations.
+It supports almost all instructions, except support for typewriter,
+paper tape, and float operations.
 
-Card reader/punch and printer are supported.
+disks, tapes, Card reader/punch and printer are supported.
 
 ========================================================================
  I N S T A L L
@@ -35,7 +35,7 @@ Three files will be generated in the current directory.
    * primes.mix -- memory dump file
    * primes.crd -- card deck file which can be loaded by mix simulator
 
->perl mixsim.pl --batch --incards=primes.crd
+>perl mixsim.pl --batch --cardreader=primes.crd
 
 The outputs are:
 
@@ -48,7 +48,7 @@ FIRST FIVE HUNDRED PRIMES
 You can also enter the interactive mode. An example session is
 shown below.
 
->perl mixsim.pl --incards=primes.crd
+>perl mixsim.pl --cardreader=primes.crd
 
 
     M I X   S i m u l a t o r
@@ -84,6 +84,10 @@ MIX>
 ========================================================================
  C H A N G E   L O G
 ========================================================================
+0.06: Jan 14, 2007
+
+    - Add disk and tape support
+    - rewrite io device management
 
 0.05: Dec 13, 2006
 

@@ -783,13 +783,17 @@ sub parse2
 			}
 		}
 		if (!$error) {
-			my $tmpword = sprintf "%s   %4d %2d %2d %2d", $m>=0?'+':'-', $m>=0?$m:(-$m), $i, $f, $c;
-			$code = { type=>'code', code=>$tmpword };
-		}	
+		  if ($i > 6) {
+		    error("index register number overflow");
+		    $error = 1;
+		  } else {
+		    my $tmpword = sprintf "%s   %4d %2d %2d %2d", $m>=0?'+':'-', $m>=0?$m:(-$m), $i, $f, $c;
+		    $code = { type=>'code', code=>$tmpword };
+		  }
+		}
 		$loc++;
 	}
 
-	
 	$unget_token = undef;
 }
 

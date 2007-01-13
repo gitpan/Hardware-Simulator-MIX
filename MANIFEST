@@ -17,4 +17,6 @@ t/store.t
 utils/gen_loader.pl
 mixal/primes
 mixal/loader
+mixal/ex3
+mixal/ex3_tape0
 doc/mix_rfc.txt
