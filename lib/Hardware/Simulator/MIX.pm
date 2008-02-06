@@ -17,9 +17,10 @@ our @EXPORT    = qw(
 		     write_mem
 		     set_max_byte
 		     get_pc
+                     get_current_time
 		     get_cmp_flag );
 
-our $VERSION   = 0.06;
+our $VERSION   = 0.07;
 
 sub new 
 {
@@ -62,8 +63,27 @@ sub reset
 	push @{$self->{mem}}, ['+', 0, 0, 0, 0, 0];
     }
 
+    $self->{devstat} = [];
+    for (0 .. 19) {
+        push @{$self->{devstat}}, {
+            laststarted => 0,
+            delay => 0
+        };
+    }
 
-    $self->{clk_count} = 0;
+
+    # According to knuth, in 1960s, one time unit on a high-priced machine is 1 us. 
+    # and a low cost is 10 us.  One time unit is same to the memory access time
+    # we want to set it to 5 us.
+
+    $self->{timeunit} = 5;
+    $self->{ms} = 1000/$self->{timeunit};
+
+    # MIX running time from last reset, recorded in time units
+    $self->{time}      = 0;
+
+
+        
     $self->{pc}        = 0;
     $self->{next_pc}   = 0;
     $self->{ov_flag}   = 0;
@@ -123,6 +143,36 @@ sub get_next_pc
     return $self->{next_pc};
 }
 
+sub get_current_time
+{
+    my $self = shift;
+    return $self->{time};
+}
+
+
+# Usage: $self->wait_until_device_ready($devnum)
+#
+# Used only before IN/OUT operations. 
+# 
+# If the device is busy, that is, the current time - last started < delay,
+# increase the current time, so that the device would be ready
+
+sub wait_until_device_ready
+{
+    my ($self, $devnum) = @_;
+    my $devstat = @{$self->{devstat}}[$devnum];
+    my $laststarted = $devstat->{laststarted};
+
+    # See whether the device is still busy
+    if ($self->{time} - $laststarted < $devstat->{delay})
+    {
+        # advance the current system time to the point
+        # that the device would be ready
+        $self->{time} += $laststarted + $devstat->{delay};
+    }
+}
+
+
 ##
 # memfunc: step
 # description: Execute an instruction, update the machine state
@@ -138,7 +188,7 @@ sub step
     # Fetch instruction
     my $loc = $self->{pc} = $self->{next_pc};
 
-    my @word = $self->read_mem($loc);
+    my @word = $self->read_mem_timed($loc);
     return if $self->{status} != 0;
 
     my $c = $word[5];
@@ -154,54 +204,61 @@ sub step
     }
     
     $self->{next_pc} = $self->{pc} + 1;
+
     if ( $c == 5 && $f == 2) { ## HLT: the machine stops
 	$self->{status} = 1;
 	$self->{message} = 'halts normally';
     } elsif ($c == 0) { ## NOP: no operation
     } elsif ($c == 8) { ## LDA: load A
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->set_reg('rA', \@tmp);
     } elsif ($c == 15) { ## LDX
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->set_reg('rX', \@tmp);
     } elsif ($c >= 9 && $c <= 14) { ## LDi
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->set_reg('rI' . ($c-8), \@tmp);
     } elsif ($c == 16) { ## LDAN
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	@tmp = neg_word(\@tmp);
 	$self->set_reg('rA', \@tmp);
     } elsif ($c == 23) { ## LDXN
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	@tmp = neg_word(\@tmp);
 	$self->set_reg('rX', \@tmp);
     } elsif ($c >= 17 && $c <= 22) { ## LDiN
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	@tmp = neg_word(\@tmp);
 	$self->set_reg('rI' . ($c-16), \@tmp);
     } elsif ($c == 24) { ## STA
-	$self->write_mem($m, $self->{rA}, $l, $r);
+	$self->write_mem_timed($m, $self->{rA}, $l, $r);
     } elsif (25 <= $c && $c <= 30) { ## STi
 	my $ri = 'rI' . ($c-24);
-	$self->write_mem($m, $self->{$ri}, $l, $r);
+	$self->write_mem_timed($m, $self->{$ri}, $l, $r);
     } elsif ($c == 31) { ## STX
-	$self->write_mem($m, $self->{rX}, $l, $r);
+	$self->write_mem_timed($m, $self->{rX}, $l, $r);
     } elsif ($c == 32) { ## STJ
-	$self->write_mem($m, $self->{rJ}, $l, $r);
+	$self->write_mem_timed($m, $self->{rJ}, $l, $r);
     } elsif ($c == 33) { ## STZ
-	$self->write_mem($m, $self->{rZ}, $l, $r);
+	$self->write_mem_timed($m, $self->{rZ}, $l, $r);
     } elsif ($c == 1) { ## ADD
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->add(\@tmp);
     } elsif ($c == 2) { ## SUB
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->minus(\@tmp);
     } elsif ($c == 3 && $f != 6) { ## MUL
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->mul(\@tmp);
+
+        # MUL requires 8 additional time units
+        $self->{time} += 8;
     } elsif ($c == 4 && $f != 6) { ## DIV
-	my @tmp = $self->read_mem($m, $l, $r);
+	my @tmp = $self->read_mem_timed($m, $l, $r);
 	$self->div(\@tmp);
+
+        # DIV requires 10 additional time units
+        $self->{time} += 10;
     } elsif (48 <= $c && $c <= 55) { 
 	my $reg = $self->{$regname[$c-48]};
 	if ($f == 0) { ## INC
@@ -227,7 +284,7 @@ sub step
 	}
     } elsif (56 <= $c && $c <= 63) { ## CMP
 	my $tmp1 = $self->get_reg($regname[$c-56], $l, $r);
-	my $tmp2 = $self->read_mem($m, $l, $r);
+	my $tmp2 = $self->read_mem_timed($m, $l, $r);
 	$self->{cmp_flag} = $tmp1 - $tmp2;
     } elsif ($c == 39) { ## JMP ON CONDITION
 	goto ERROR_INST if $f > 9;
@@ -265,8 +322,8 @@ sub step
     } elsif ($c == 7) {
 	my $dest = $self->get_reg('rI1');
 	for (my $i = 0; $i < $f; $i++, $m++, $dest++) {
-	    my @w = $self->read_mem($m);
-	    $self->write_mem($dest, \@w);
+	    my @w = $self->read_mem_timed($m);
+	    $self->write_mem_timed($dest, \@w);
 	}
 	my @tmp = ('+', 0,0,0,0,0);
 	int_to_word($dest, \@tmp, $self->{max_byte});
@@ -323,6 +380,10 @@ sub step
 	unshift @x, $sx;
 	$self->set_reg('rA', \@a);
 	$self->set_reg('rX', \@x);
+
+        # shift operations takes additional 1 time unit
+        $self->{time} = $self->{time} + 1;
+
     } elsif ($c == 5 && $f == 0) { ## NUM
 	my @a = @{$self->{rA}};
 	my @x = @{$self->{rX}};
@@ -355,12 +416,15 @@ sub step
 	    @{$self->{rA}}[$i] = 30 + $val%10;
 	    $val = int($val/10);
 	}
-    } elsif ($c == 36) {
+    } elsif ($c == 36) { ## IN
 	if ($f == 16) { ## CARD READER
+            $self->wait_until_device_ready($f);
 	    $self->load_card($m);
 	} elsif ($f >= 0 && $f <= 7) {
+            $self->wait_until_device_ready($f);
 	    $self->read_tape($f, $m);
 	} elsif ($f >= 8 && $f <= 15) {
+            $self->wait_until_device_ready($f);
 	    $self->read_disk($f, $m);
 	} else {
 	    $self->{status} = 2;
@@ -368,12 +432,16 @@ sub step
 	}
     } elsif ($c == 37) {
 	if ($f == 17) { ## CARD Punch
-	    $self->punch_card($m);
+	    $self->wait_until_device_ready($f);
+            $self->punch_card($m);
 	} elsif ($f == 18)  { ## Printer
+	    $self->wait_until_device_ready($f);
 	    $self->print_line($m);
 	} elsif (0 <= $f && $f <= 7) {
+	    $self->wait_until_device_ready($f);
 	    $self->write_tape($f, $m);
 	} elsif (8 <= $f && $f <= 15) {
+	    $self->wait_until_device_ready($f);
 	    $self->write_disk($f, $m);
 	} else {
 	    $self->{status} = 2;
@@ -437,6 +505,15 @@ sub read_tape {
 	$tape->{pos}++;
     }        
 }
+
+
+# TODO: tape and disk io
+
+# device ability is aligned with IBM1130.org
+# tape io: 10ms
+# disk io: 10ms
+# seek : 10ms
+
 sub set_tape_pos {
 
 }
@@ -489,7 +566,12 @@ sub load_card {
 		@w = ('+');
 	    }
 	}
-    }    
+    }
+
+    my $devstat = @{$self->{devstat}}[17];
+    $devstat->{laststarted} = $self->{time};
+    $devstat->{delay} = 100 * $self->{ms}; # Read 10 cards per second
+    
     return 1;
 }
 
@@ -519,6 +601,10 @@ sub punch_card {
 
     my $dev = $self->{dev}->{17};
     push @{$dev->{buf}}, $crd;
+
+    my $devstat = @{$self->{devstat}}[17];
+    $devstat->{laststarted} = $self->{time};
+    $devstat->{delay} = 500 * $self->{ms}; # Punch 2 cards per second
 }
 
 sub print_line {
@@ -549,6 +635,10 @@ sub print_line {
     $line =~ s/\s+$//;
     $page .= $line . "\n";
     push @{$printer->{buf}}, $page;
+
+    my $devstat = @{$self->{devstat}}[18];
+    $devstat->{laststarted} = $self->{time};
+    $devstat->{delay} = 100 * $self->{ms}; # Print 10 lines per second
 }
 
 sub new_page {
@@ -567,8 +657,14 @@ sub new_page {
 	$self->{status} = 2;
 	$self->{message} = "printer ioctrl error: M should be zero";
     }
+
+    my $devstat = @{$self->{devstat}}[18];
+    $devstat->{laststarted} = $self->{time};
+    $devstat->{delay} = 10 * $self->{ms};
 }
 
+
+## TODO: print all regs in a beautifuly way
 sub print_all_regs {
     my ($self) = @_;
 
@@ -678,6 +774,21 @@ sub is_halted {
     return 0 if $self->{status} == 0;
     return 1;
 }
+
+sub read_mem_timed
+{
+    my $self = shift;
+    $self->{time} = $self->{time} + 1;
+    return $self->read_mem(@_);
+}
+
+sub write_mem_timed
+{
+    my $self = shift;
+    $self->{time} = $self->{time} + 1;
+    return $self->write_mem(@_);
+}
+
 
 sub read_mem
 {
@@ -1066,7 +1177,18 @@ Note: the names are case sensitive.
 
 =item Flags
 
+$mix->get_cmp_flag() returns an integer. If the returned value is negative, 
+the flag is "L"; if the return value is positive, the flag is "G";
+if the return value is 0, the flag is "E".
+
+$mix->get_overflow() return 0 if there is no overflow. return 1 if overflow happen.
+
+Flags may be updated after execute new instruction.
+
 =item Status
+
+
+$mix->get_current_time() returns the current mix running time in time units since the last reset.
 
 =back
 
