@@ -20,7 +20,7 @@ our @EXPORT    = qw(
                      get_current_time
 		     get_cmp_flag );
 
-our $VERSION   = 0.07;
+our $VERSION   = 0.08;
 
 sub new 
 {
@@ -168,7 +168,7 @@ sub wait_until_device_ready
     {
         # advance the current system time to the point
         # that the device would be ready
-        $self->{time} += $laststarted + $devstat->{delay};
+        $self->{time} = $laststarted + $devstat->{delay};
     }
 }
 
@@ -449,6 +449,7 @@ sub step
 	}
     } elsif ($c == 35) {
 	if ($f == 18) { ## Printer: set up new page
+	    $self->wait_until_device_ready($f);
 	    $self->new_page($m);
 	} elsif (0 <= $f && $f <= 7) {
 	    $self->set_tape_pos($f, $m);

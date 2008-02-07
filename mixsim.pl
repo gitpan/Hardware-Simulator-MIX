@@ -5,6 +5,7 @@ use Getopt::Long;
 
 my $opt_byte_size = 64;
 my $opt_batch_mode = 0;
+my $opt_interactive_mode = 0;
 my $opt_myloader = 0;
 my $opt_verbose;
 my $opt_help = 0;
@@ -51,6 +52,7 @@ GetOptions ("bytesize=i"   => \$opt_byte_size,
             "disk6=s"      => \$opt_disk6,
             "disk7=s"      => \$opt_disk7,
             "batch"        => \$opt_batch_mode,
+            "interactive"  => \$opt_interactive_mode,
             "help"         => \$opt_help,
             "myloader"     => \$opt_myloader,
             "verbose"      => \$opt_verbose);
@@ -77,6 +79,9 @@ if ($opt_batch_mode) {
 	print join(" ", $mix->read_mem($mix->{pc}));
     } 
     flush_devices();
+    my $time = $mix->get_current_time();
+    my $realtime = $time*$mix->{timeunit}/1000000;
+    print "MIX TIME: ", $time, ", ~ ", $realtime, " seconds\n";
     exit;
 }
 
@@ -109,6 +114,7 @@ while (1)
     next if !defined $cb;
     &$cb(@args);
 }
+print "MIX TIME: ", $mix->get_current_time(), "\n";
 exit(0);
 
 ########################################################################
@@ -137,22 +143,21 @@ sub init_cmdtable
     };
 }
 
+######################################################################
+# show_page(optional $page_num)
+#     print the newest page if $page_num is not specified.
+#
 sub show_page
 {
-    my ($page_num) = @_;
-    my $pages = $mix->{printer};
+    my $page_num = shift;
+    my $pages = $mix->get_device_buffer(18);
     my $n = @{$pages};
-    if ($n>0) {
-        if (!defined $page_num) {
-            $page_num = $n;
-        }
-        if ($page_num > $n) {
-            print "Error: no such page\n";
-        } else {
-            print "Page $page_num of $n\n";
-            print @{$pages}[$page_num-1]; 
-        }
-    }
+    return if $n == 0;
+    $page_num = $n if !defined $page_num || $page_num > $n;
+    
+    my $page = @{$pages}[$page_num-1];
+    print "Page $page_num of $n\n";
+    print $page;   
 }
 
 
@@ -164,6 +169,7 @@ sub step
     }
     $mix->print_all_regs();
     print "    Next inst: ", join(" ", @{@{$mix->{mem}}[$mix->{next_pc}]}), "\n";
+    print " Current time: ", $mix->get_current_time(), "\n";
 }
 
 sub run_until
@@ -183,6 +189,7 @@ sub run_until
     $mix->print_all_regs();
     print "Previous inst: ", join(" ", @{@{$mix->{mem}}[$mix->{pc}]}), "\n";
     print "    Next inst: ", join(" ", @{@{$mix->{mem}}[$mix->{next_pc}]}), "\n";
+    print " Current time: ", $mix->get_current_time(), "\n";
 }
 
 sub help
@@ -231,6 +238,7 @@ sub edit_memory
 sub load_card
 {
     my ($loc) = @_;
+    print STDERR "LOAD CARD: ERROR MEMORY LOCATION $loc\n" if !defined $loc || $loc < 0 || $loc > 3999;
     $mix->load_card($loc);
 }
 
