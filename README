@@ -84,6 +84,15 @@ MIX>
 ========================================================================
  C H A N G E   L O G
 ========================================================================
+0.09: Feb 17, 2008
+
+    - Fix bug: mixasm.pl: no TRANS card if no end of line after "END
+      START"
+
+    - Add feature: show execution count and time for
+      instrunctions in the 'd' command
+
+
 0.08: Feb 07, 2008
 
     - Fix a timing bug in wait_until_device_ready (+=)

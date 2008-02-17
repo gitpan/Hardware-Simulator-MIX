@@ -20,4 +20,5 @@ mixal/primes
 mixal/loader
 mixal/ex3
 mixal/ex3_tape0
+mixal/josephus1
 doc/mix_rfc.txt

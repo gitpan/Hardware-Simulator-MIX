@@ -44,8 +44,7 @@ open FILE, "<$srcfile" || die "can't open $srcfile";
 while (<FILE>) 
 {
 	$ln++;
-	chop;
-#	printf "%04d: %s\n", $ln, $_;
+#	printf "%04d: %s", $ln, $_;
 	next if m/^\s*$/;
 	next if m/^\*/;
 	parse1($_);
@@ -97,6 +96,8 @@ while (<FILE>) {
 
 	last if $end_of_program;
 }
+
+print LSTFILE "\n";
 
 foreach (@implied_constant_words) {
 	printf LSTFILE "%04d: %s \n", $_->{loc}, $_->{code};

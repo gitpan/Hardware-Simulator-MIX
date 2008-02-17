@@ -18,9 +18,11 @@ our @EXPORT    = qw(
 		     set_max_byte
 		     get_pc
                      get_current_time
+                     get_exec_count
+                     get_exec_time
 		     get_cmp_flag );
 
-our $VERSION   = 0.08;
+our $VERSION   = 0.09;
 
 sub new 
 {
@@ -30,7 +32,15 @@ sub new
 	@_ 
 	};
     bless $self, $class;
+
     $self->{max_byte} = 64 if !exists $self->{max_byte};
+
+    # According to knuth, in 1960s, one time unit on a high-priced machine is 1 us. 
+    # and a low cost is 10 us.  One time unit is same to the memory access time
+    # we want to set it to 5 us.
+    $self->{timeunit} = 5  if !exists $self->{timeunit};
+    $self->{ms} = 1000/$self->{timeunit};
+
     $self->{dev} = {};
     $self->reset();
     return $self; 
@@ -59,8 +69,13 @@ sub reset
     $self->{rI6} = ['+', 0, 0, 0, 0, 0];
 
     $self->{mem} = [];
+    $self->{execnt} = [];
+    $self->{exetime} = [];
+
     for (0 .. 3999) {
 	push @{$self->{mem}}, ['+', 0, 0, 0, 0, 0];
+	push @{$self->{execnt}}, 0;
+	push @{$self->{exetime}}, 0;
     }
 
     $self->{devstat} = [];
@@ -72,17 +87,9 @@ sub reset
     }
 
 
-    # According to knuth, in 1960s, one time unit on a high-priced machine is 1 us. 
-    # and a low cost is 10 us.  One time unit is same to the memory access time
-    # we want to set it to 5 us.
-
-    $self->{timeunit} = 5;
-    $self->{ms} = 1000/$self->{timeunit};
 
     # MIX running time from last reset, recorded in time units
     $self->{time}      = 0;
-
-
         
     $self->{pc}        = 0;
     $self->{next_pc}   = 0;
@@ -149,6 +156,17 @@ sub get_current_time
     return $self->{time};
 }
 
+sub get_exec_count
+{
+    my ($self, $loc) = @_;
+    return @{$self->{execnt}}[$loc];
+}
+
+sub get_exec_time
+{
+    my ($self, $loc) = @_;
+    return @{$self->{exetime}}[$loc];
+}
 
 # Usage: $self->wait_until_device_ready($devnum)
 #
@@ -185,9 +203,10 @@ sub step
 
     return if $self->{status} != 0;
 
+    my $start_time = $self->{time};
+
     # Fetch instruction
     my $loc = $self->{pc} = $self->{next_pc};
-
     my @word = $self->read_mem_timed($loc);
     return if $self->{status} != 0;
 
@@ -468,6 +487,9 @@ ERROR_INST:
 	$self->{status} = 2;
 	$self->{message} = "invalid instruction at $loc";
     }
+
+    @{$self->{execnt}}[$loc]++;
+    @{$self->{exetime}}[$loc] += $self->{time} - $start_time;
 }
 
 sub get_device_buffer {
@@ -1126,11 +1148,10 @@ Hardware::Simulator::MIX - Knuth's famous virtual machine
 
 =head1 DESCRIPTION
 
-Number system.
-Memory word.
-Field specification.
-Architecture.
-char set.
+This implementation includes the GO button and the default loader is the answer to
+Exercise 1.3 #26.
+
+For detailed architecture information, search MIX in wikipedia.
 
 =head1 CONSTRUCTOR
 
@@ -1143,6 +1164,7 @@ The following options correspond to attribute methods described below:
     KEY                     DEFAULT
     -----------             --------------------
     max_byte                64
+    timeunit                5   (microseconds)
 
 =head1 MACHINE STATE
 
@@ -1197,12 +1219,11 @@ $mix->get_current_time() returns the current mix running time in time units sinc
 
 =over 4
 
+=item $mix->get_reg($reg_name)
+
 =item $mix->is_halted()
 
 =item $mix->reset()
-
-=item $mix->step()
-
 
 =item $mix->read_mem($loc)
 
@@ -1214,36 +1235,32 @@ Return a MIX word from memory. C<$loc> must be among 0 to 3999.
 If field spec C<$l> and C<$r> are missing, they are 0 and 5;
 If C<$r> is missing, it is same as C<$l>.
 
-=item $mix->write_mem($loc, $wref, $l, $r)
+=item $mix->step()
 
 =item $mix->set_reg($reg_name, $wref)
 
-=item $mix->get_reg($reg_name)
+=item $mix->write_mem($loc, $wref, $l, $r)
 
 =back
 
 =head1 AUTHOR
 
-Chaoji Li<lichaoji@ict.ac.cn>
+Chaoji Li<lichaoji@gmail.com>
 
 Please feel free to send a email to me if you have any question.
-
-=head1 BUGS
-
 
 =head1 SEE ALSO
  
 The package also includes a mixasm.pl which assembles MIXAL programs. Usage:
 
-    perl mixasm.pl <srcfile.mixal>
+    perl mixasm.pl <yourprogram>
 
-Again, there is a mixsim.pl which is a command line interface to control MIX machine. Usage:
+This command will generate a .crd file which is a card deck to feed into the mixsim.pl.
+Typical usage:
 
-    perl mixsim.pl
+    perl mixsim.pl --cardreader=<yourprogram.crd>
 
 Then type 'h' at the command line so you can see a list of commands. You can load a MIX program
 into the machine and see it run.
-
-=head1 COPYRIGHT
 
 =cut

@@ -1,6 +1,6 @@
 ---
 name: Hardware-Simulator-MIX
-version: 0.08
+version: 0.09
 author:
   - 'Chaoji Li <lichaoji@ict.ac.cn>'
 abstract: MIX simulator, with timing added
@@ -14,6 +14,6 @@ meta-spec:
 provides:
   Hardware::Simulator::MIX:
     file: lib/Hardware/Simulator/MIX.pm
-    version: 0.08
+    version: 0.09
 resources:
   license: http://dev.perl.org/licenses/

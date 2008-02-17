@@ -204,6 +204,7 @@ sub display_memory
     my ($loc) = @_;
     $memloc = $loc if defined $loc;
     for ( $memloc .. $memloc+9 ) {
+	my $loc = $_;
 	next if $_ < 0;
 	last if $_ > 3999;
 	my @w = $mix->read_mem($_);
@@ -214,8 +215,13 @@ sub display_memory
 	    print $ch if defined $ch;
 	    print '^' if!defined $ch;
 	}
+
+	if ($mix->get_exec_count($loc) > 0) {
+	    printf "  %8d %11d u", $mix->get_exec_count($loc), $mix->get_exec_time($loc);
+	}
 	print "\n";
     }
+
     $memloc += 10 if $memloc+10 < 4000;
 }
 
