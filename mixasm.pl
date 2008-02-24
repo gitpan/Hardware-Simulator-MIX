@@ -23,8 +23,7 @@ my $program_entry = -1;
 
 init_optable();
 
-if (@ARGV != 1) 
-{
+if (@ARGV != 1) {
 	print STDERR "Usage: perl mixasm.pl <file.mixal>";
 	exit(1);
 }
@@ -33,7 +32,6 @@ my ($base, $path, $type) = fileparse($srcfile, qr{\..*});
 $lstfile = $base . ".lst";
 $mixfile = $base . ".mix";
 $crdfile = $base . ".crd";
-
 
 ########################################################################
 ## PARSE PHASE I
@@ -208,20 +206,6 @@ sub gen_card {
                     $val = int($val/10);
                 }
                 $crd .= $tmp;
-=comment
-		my $j = 0;
-		for (; $j < 5; $j++) {
-			my $bt = $w[$j];
-			my $h = int($bt/10);
-			my $l = $bt%10;
-			$crd .= @chars[$h];
-			if ($j == 5 && $sign eq '-') {
-				$crd .= @neg_chars[$l];
-			} else {
-				$crd .= @chars[$l];
-			}
-		}
-=cut
 	}
 	return $crd;
 }
@@ -445,10 +429,12 @@ sub parse1
 			error("missing label");
 			return;
 		}
-		my $val = parse_expr($get_token);
+		my $val = parse_w_value($get_token);
 		if (defined $val) {
 			debug ", Install symbol $label with value $val\n";
 			install_symbol($label, $val);
+		} else {
+		    error("undefined w value for EQU");
 		}
 	} elsif ( $value eq 'ORIG' ) {
 
@@ -456,7 +442,7 @@ sub parse1
 		# in ORIG statement
 		$parse_phase = 2; 
 
-		my $val = parse_expr($get_token);
+		my $val = parse_w_value($get_token);
 
 		$parse_phase = 1;
 
@@ -483,9 +469,11 @@ sub parse1
 		}
 		$loc++;
 	} elsif ( $value eq 'END' ) {
-		my $val = parse_expr($get_token);
+		my $val = parse_w_value($get_token);
 		if (defined $val) {
-			$program_entry = $val;
+		    $program_entry = $val;
+		} else {
+		    error("invalid w value for END");
 		}
 		$end_of_program = 1;
 	} else {
@@ -503,6 +491,55 @@ sub parse1
 	$unget_token = undef;
 }
 
+sub parse_w_value
+{
+    my $get_token = shift;
+    my $w = 0;
+NEXT_W_VALUE:
+    my $a = parse_expr($get_token);
+    return undef if !defined $a;
+    my ($type, $value) = $get_token->();
+    if ($type eq '(') {
+	my $f = parse_expr($get_token);
+	return undef if !defined $f;
+	($type, $value) = $get_token->();
+	return undef if $type ne ')';
+
+	# Calculate new w value
+	my $l = int($f / 8);
+	my $r = $f % 8;
+	my $sign = ($w >= 0?1:-1);
+	$w = - $w if $w < 0;
+	$sign = ($a >= 0?1:-1) if $l == 0;
+	$a = - $a if $a < 0;	
+	if ($r == 0) {
+	    $w = $sign * $w;
+	} else {
+	    my $wl = 0;
+	    $wl = $w % ($byte_size ** (5-$r)) if $r < 5;
+	    my $wh = ($w - ($w%($byte_size ** (6-$l))));
+	    $a = $a % ($byte_size ** ($r - $l + 1));
+	    $a = $a * ($byte_size ** (5-$r)) if $r < 5;
+	    $w = $sign * ($wl + $wh + $a);
+	}
+	($type, $value) = $get_token->();
+	return $w if $type ne ',';
+	goto NEXT_W_VALUE;
+    } elsif ($type eq ',') {
+	# No field spec.
+	# no matter whether w has been set or not, we have
+	$w = $value;
+	goto NEXT_W_VALUE;
+    } elsif (!defined $type) {
+	return $a;
+    } elsif ($type eq '=') {
+	$unget_token = [$type, $value];
+	return $w;
+    } else {
+	return undef;
+    }
+}
+
 sub parse_expr
 {
 	my $get_token = shift;
@@ -510,7 +547,10 @@ sub parse_expr
 	my ($type, $value) = &$get_token();
 	my $undef_sym_is_seen = 0;
 
-	if ($type eq '-' || $type eq '+') {
+	# Get the first operand. If the first token is +/-,
+	# use the default operand 0
+
+	if ($type eq '-' || $type eq '+') { # unary op
 		$unget_token = [$type, $value];
 	} elsif ($type eq '*') {
 		$retval = $loc;
@@ -534,9 +574,13 @@ sub parse_expr
 		return;
 	}
 	
+	# Loop: find op and operand 2
+	#       Use retval as the operand 1
+        #       Calculate new retval by computing (opr1 op opr2)
 	while ( ($type, $value) = &$get_token() ) {
 		last if !defined $type;
 
+		# End expr when encountering "(" or "=" or ","
 		if (! is_op($type)) {
 			$unget_token = [$type, $value]; 
 			last;
@@ -584,6 +628,7 @@ sub do_op
 	return $operand1 + $operand2 if $op eq '+';
 	return $operand1 - $operand2 if $op eq '-';
 	return $operand1 * $operand2 if $op eq '*';
+	return $operand1 * 8 + $operand2 if $op eq ':';
 	return int($operand1 / $operand2) if $op eq '/';
 	if ($op eq '//') {
 		my $tmp = $byte_size * $byte_size * $byte_size * $byte_size * $byte_size;
@@ -595,7 +640,7 @@ sub do_op
 
 sub is_op {
 	my $t = @_[0];
-	return $t eq '+' || $t eq '-' || $t eq '*' || $t eq '/' || $t eq '//'; 
+	return $t eq ':' || $t eq '+' || $t eq '-' || $t eq '*' || $t eq '/' || $t eq '//'; 
 }
 
 # FIXME: local symbol
@@ -672,7 +717,7 @@ sub parse2
 	## Op field
 	if ( $value eq 'EQU' ) {
 		if (!exists $symbols->{$label}) { ## Do evaluation
-			my $val = parse_expr($get_token);
+			my $val = parse_w_value($get_token);
 			if (defined $val) {
 				debug "Install symbol $label with value $val\n";
 				$symbols->{$label}->{value} = $val;
@@ -681,7 +726,7 @@ sub parse2
 			}
 		}
 	} elsif ( $value eq 'ORIG' ) {
-		$loc = parse_expr($get_token);
+		$loc = parse_w_value($get_token);
 	} elsif ( $value eq 'ALF' ) {
 		if (length($src) < 21) {
 			error("error ALF instruction, no enough chars");
@@ -691,7 +736,7 @@ sub parse2
 		}
 		$loc++;
 	} elsif ( $value eq 'CON' ) {
-		my $tmp = parse_expr($get_token);
+		my $tmp = parse_w_value($get_token);
 		if (!defined $tmp) {
 			error("cannot determine the value of operand");
 		} else {
@@ -862,12 +907,13 @@ sub tokenizer
 		}
 	TOKEN: {
 		return ( 'LABEL', $1 )    if $src =~ /^(\w+)/gcx;
-		return ( 'INTEGER', $1*8+$2) if $src =~ /\G(\d+)\:(\d+)/gcx;
+#		return ( 'INTEGER', $1*8+$2) if $src =~ /\G(\d+)\:(\d+)/gcx;
 		return ( 'INTEGER', $1 )  if $src =~ /\G(\d+)\b/gcx;
 		return ( 'SYMBOL', $1 )   if $src =~ /\G(\w+)/gcx;
 		return ( '+', $1 )        if $src =~ /\G(\+)/gcx;
 		return ( '-', $1 )        if $src =~ /\G(\-)/gcx;
 		return ( '*', $1 )        if $src =~ /\G(\*)/gcx;
+		return ( ':', $1 )        if $src =~ /\G(\:)/gcx;
 		return ( '//', $1 )       if $src =~ /\G(\/\/)/gcx;
 		return ( '/', $1 )        if $src =~ /\G(\/)/gcx;
 		return ( '(', $1 )        if $src =~ /\G(\()/gcx;
@@ -925,6 +971,19 @@ sub code_to_data_word
 		int($w[1] / $byte_size), 
 		$w[1] % $byte_size, 
 		$w[2], $w[3], $w[4];
+}
+
+sub print_op_table
+{
+    my @ops = sort keys %$optable;
+    my $i = 1;
+    foreach (@ops) {
+	printf "    " if $i % 5 == 1;
+	printf "%-5s%3s%2s   ", $_, $optable->{$_}->{c}, $optable->{$_}->{f};
+	printf "\n" if $i % 5 == 0;
+	$i++;
+    }
+    print "\n";
 }
 
 __END__

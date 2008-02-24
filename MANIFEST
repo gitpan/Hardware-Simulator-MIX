@@ -1,4 +1,3 @@
-Makefile.PL
 Build.PL
 lib/Hardware/Simulator/MIX.pm
 mixsim.pl
@@ -16,9 +15,10 @@ t/load.t
 t/store.t
 t/timing.t
 utils/gen_loader.pl
+utils/dos2unix.pl
 mixal/primes
 mixal/loader
-mixal/ex3
-mixal/ex3_tape0
+mixal/stress
 mixal/josephus1
 doc/mix_rfc.txt
+Makefile.PL

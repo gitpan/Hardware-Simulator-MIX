@@ -8,13 +8,14 @@ That's why I start to write this one.
 It supports almost all instructions, except support for typewriter,
 paper tape, and float operations.
 
-disks, tapes, Card reader/punch and printer are supported.
+Card reader/punch and printer are supported.
+Disk/tape are partial supported.
 
 ========================================================================
  I N S T A L L
 ========================================================================
 
-In windows:
+Install "Build" module from CPAN.
 
 perl Build.PL
 perl Build
@@ -84,6 +85,8 @@ MIX>
 ========================================================================
  C H A N G E   L O G
 ========================================================================
+0.10: Feb 24, 2008
+    - Add CON support for mixasm.pl, parse_w_value
 0.09: Feb 17, 2008
 
     - Fix bug: mixasm.pl: no TRANS card if no end of line after "END

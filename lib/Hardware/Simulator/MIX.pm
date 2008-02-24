@@ -22,7 +22,7 @@ our @EXPORT    = qw(
                      get_exec_time
 		     get_cmp_flag );
 
-our $VERSION   = 0.09;
+our $VERSION   = 0.10;
 
 sub new 
 {

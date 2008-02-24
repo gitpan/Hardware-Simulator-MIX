@@ -1,13 +1,11 @@
 mixasm
 
-1. CON : expressions such as 1(1:5) not supported yet
-2. options, like bytesize
+options, like bytesize
 
 mixsim
 
 1. unasm: 'U' commands
 2. load memory dump file
-3. enter card
 
 
 MIX.pm
