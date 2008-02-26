@@ -17,12 +17,14 @@ our @EXPORT    = qw(
 		     write_mem
 		     set_max_byte
 		     get_pc
+                     get_reg
                      get_current_time
                      get_exec_count
                      get_exec_time
+                     get_last_error
 		     get_cmp_flag );
 
-our $VERSION   = 0.10;
+our $VERSION   = 0.2;
 
 sub new 
 {
@@ -46,10 +48,24 @@ sub new
     return $self; 
 }
 
+sub get_max_byte
+{
+    my $self = shift;
+    return $self->{max_byte};
+}
+
 sub set_max_byte
 {
     my $self = shift;
     $self->{max_byte} = shift;
+}
+
+sub get_last_error
+{
+    my $self = shift;
+    return ""     if ($self->{status} == 0);
+    return "HALT" if ($self->{status} == 1);
+    return "ERROR: " . uc("$self->{message}") if $self->{status} >= 2;
 }
 
 sub reset 
@@ -86,8 +102,6 @@ sub reset
         };
     }
 
-
-
     # MIX running time from last reset, recorded in time units
     $self->{time}      = 0;
         
@@ -104,7 +118,8 @@ sub reset
 # For card reader and punch, each item of buffer is a line.        
 # For printer, each item of buffer is a page.
 # e.g.   $mix->add_device(16, \@cards);
-sub add_device {
+sub add_device 
+{
     my ($self, $u, $buf) = @_; 
     return 0 if $u > 19 || $u < 0;
     $self->{dev}->{$u} = {};
@@ -117,7 +132,8 @@ sub add_device {
     return 1;
 }
 
-sub go {
+sub go 
+{
     my ($self) = @_;
 
     $self->load_card(0);
@@ -190,11 +206,7 @@ sub wait_until_device_ready
     }
 }
 
-
-##
-# memfunc: step
-# description: Execute an instruction, update the machine state
-##
+# Execute an instruction, update the machine state
 sub step
 {
     my $self = shift;
@@ -206,7 +218,7 @@ sub step
     my $start_time = $self->{time};
 
     # Fetch instruction
-    my $loc = $self->{pc} = $self->{next_pc};
+    my $loc = $self->{pc};
     my @word = $self->read_mem_timed($loc);
     return if $self->{status} != 0;
 
@@ -490,6 +502,7 @@ ERROR_INST:
 
     @{$self->{execnt}}[$loc]++;
     @{$self->{exetime}}[$loc] += $self->{time} - $start_time;
+    $self->{pc} = $self->{next_pc};
 }
 
 sub get_device_buffer {
@@ -547,7 +560,9 @@ sub write_disk {
 sub read_disk {
 }
 
-sub load_card {
+# Load cards into memory started at $loc
+sub load_card 
+{
     my ($self,$loc) = @_;
 
     # Check if card reader installed
@@ -599,7 +614,8 @@ sub load_card {
 }
 
 
-sub punch_card {
+sub punch_card 
+{
     my ($self, $loc) = @_;
 
     if (!exists $self->{dev}->{17}) {
@@ -630,7 +646,8 @@ sub punch_card {
     $devstat->{delay} = 500 * $self->{ms}; # Punch 2 cards per second
 }
 
-sub print_line {
+sub print_line 
+{
     my ($self, $loc) = @_;
     my $printer = $self->{dev}->{18};
     if (!defined $printer) {
@@ -664,7 +681,8 @@ sub print_line {
     $devstat->{delay} = 100 * $self->{ms}; # Print 10 lines per second
 }
 
-sub new_page {
+sub new_page 
+{
     my ($self, $m) = @_;
     my $printer = $self->{dev}->{18};
 
@@ -686,55 +704,8 @@ sub new_page {
     $devstat->{delay} = 10 * $self->{ms};
 }
 
-
-## TODO: print all regs in a beautifuly way
-sub print_all_regs {
-    my ($self) = @_;
-
-    print " rA: ";
-    $self->print_reg('rA');
-    print "  rX: ";
-    $self->print_reg('rX');
-    print "\nrI1: ";
-    $self->print_reg('rI1');
-    print "  rI2: ";
-    $self->print_reg('rI2');
-    print "\nrI3: ";
-    $self->print_reg('rI3');
-    print "  rI4: ";
-    $self->print_reg('rI4');
-    print "\nrI5: ";
-    $self->print_reg('rI5');
-    print "  rI6: ";
-    $self->print_reg('rI6');
-    print "\n rJ: ";
-    $self->print_reg('rJ');
-    print "\nPC = ", $self->{pc}, "  NEXT = ", $self->{next_pc};
-    print "  ", $self->{ov_flag}?'OV':'NO';
-    if ($self->{cmp_flag} > 0) {
-	print " GT",
-    } elsif ($self->{cmp_flag} < 0) {
-	print " LT";
-    } else {
-	print " EQ";
-    }
-    if ($self->{status} == 0) {
-	print " OK";
-    } elsif ($self->{status} == 1) {
-	print " HALT";
-    } else {
-	print " ERROR";
-    }
-    print "\n";
-}
-
-sub print_reg {
-    my ($self, $reg) = @_;
-    my @word = $self->get_reg($reg);
-    print word_to_string(@word);
-}
-
-sub clear_status {
+sub clear_status 
+{
     my ($self) = @_;
     $self->{status} = 0;
 }
@@ -761,7 +732,7 @@ sub get_reg
 
     for ($l .. $r) {
 	push @retval, $word[$_]
-	}
+    }
     @retval = fix_word(@retval);
     my $value = word_to_int(\@retval, $self->{max_byte});
     return wantarray? @retval : $value;
@@ -792,7 +763,8 @@ sub set_reg
     }
 }
 
-sub is_halted {
+sub is_halted 
+{
     my $self = shift;
     return 0 if $self->{status} == 0;
     return 1;
@@ -980,7 +952,8 @@ sub div
 # Utilities
 ########################################################################
 
-sub get_dev_name {
+sub get_dev_name 
+{
     my ($unit) = @_;
     if ($unit >= 0 && $unit <= 7) {
 	return "Tape $unit";
@@ -1127,7 +1100,6 @@ sub mix_char_code
     return -1 if $_[0] eq "^";
     return index($mix_charset, $_[0]); 
 }
-
 
 1;
 

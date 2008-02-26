@@ -1,5 +1,6 @@
 use File::Basename;
 use Data::Dumper;
+use Getopt::Long;
 
 my $error_count = 0;
 my $ln = 0;
@@ -21,16 +22,23 @@ my @implied_constant_words = ();
 my $optable = {};
 my $program_entry = -1;
 
+GetOptions ("bytesize=i"   => \$byte_size);
+
+if ($byte_size != 100 && $byte_size != 64) {
+    print STDERR "BYTESIZE SHOULD BE 100 OR 64\n";
+    exit(-1);
+}
+
 init_optable();
 
 if (@ARGV != 1) {
-	print STDERR "Usage: perl mixasm.pl <file.mixal>";
+	print STDERR "Usage: perl mixasm.pl <MIXALSOURCEFILE>";
 	exit(1);
 }
 $srcfile = shift @ARGV;
 my ($base, $path, $type) = fileparse($srcfile, qr{\..*});
 $lstfile = $base . ".lst";
-$mixfile = $base . ".mix";
+#$mixfile = $base . ".mix";
 $crdfile = $base . ".crd";
 
 ########################################################################
@@ -113,6 +121,8 @@ if ($error_count > 0) {
 # Generating MIX Code
 ########################################################################
 
+=comment
+
 open MIXFILE, ">$mixfile" || die "can not open $mixfile for write";
 
 for ( sort {$a <=> $b} keys %{$codes} ) {
@@ -132,6 +142,7 @@ for ( sort {$a <=> $b} keys %{$codes} ) {
 }
 close MIXFILE;
 
+=cut
 
 ########################################################################
 # Generating Card deck

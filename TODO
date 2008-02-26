@@ -1,16 +1,14 @@
-mixasm
 
-options, like bytesize
 
 mixsim
 
-1. unasm: 'U' commands
-2. load memory dump file
-
+1. prepare card deck
+2. save/load memory dump file
+3. cmdline: no need for --cardreader
 
 MIX.pm
 
 1. performance improvement
 2. test suites
-
-
+3. remove our and print routines
+4. documentation

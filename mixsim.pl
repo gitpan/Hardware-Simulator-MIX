@@ -59,6 +59,8 @@ GetOptions ("bytesize=i"   => \$opt_byte_size,
 
 usage() if $opt_help;
 
+my $next_unasm_loc = 0;
+
 my @default_loader = (
 		      " O O6 Y O6    I   B= D O4 Z IQ Z I3 Z EN    E   EU 0BB= H IU   EJ  CA. ACB=   EU",
 		      " 1A-H V A=  CEU 0AEH 1AEN    E  CLU  ABG H IH A A= J B. A  9                    ");
@@ -124,8 +126,8 @@ sub init_cmdtable
     $cmdtable = {
         prt => {  help => "prt => Show current page, prt n => show page n",
 		  cb => sub { show_page(@_) } },
-	l => {  help => "Load card",
-		cb => sub {load_card(@_)} },
+	u => {  help => "Unasm",
+		cb => sub {unasm(@_)} },
         s => {  help => "Step",
                 cb => sub {step()} },
 	g => {  help => "Go to location",
@@ -139,7 +141,7 @@ sub init_cmdtable
 	q => {  help => "Quit",
 		cb => sub { exit(0) } },
 	r => {  help => "Display registers",
-		cb => sub { $mix->print_all_regs() } }
+		cb => sub { print_machine_status() } }
     };
 }
 
@@ -164,12 +166,7 @@ sub show_page
 sub step
 {
     $mix->step();
-    if ($mix->{status} != 0) {
-        print $mix->{message}, "\n";
-    }
-    $mix->print_all_regs();
-    print "    Next inst: ", join(" ", @{@{$mix->{mem}}[$mix->{next_pc}]}), "\n";
-    print " Current time: ", $mix->get_current_time(), "\n";
+    print_machine_status();
 }
 
 sub run_until
@@ -183,13 +180,8 @@ sub run_until
     while ($mix->{next_pc} != $loc && $mix->{status} == 0) {
         $mix->step();
     }
-    if ($mix->{status} != 0) {
-        print $mix->{message}, "\n";
-    }
-    $mix->print_all_regs();
-    print "Previous inst: ", join(" ", @{@{$mix->{mem}}[$mix->{pc}]}), "\n";
-    print "    Next inst: ", join(" ", @{@{$mix->{mem}}[$mix->{next_pc}]}), "\n";
-    print " Current time: ", $mix->get_current_time(), "\n";
+
+    print_machine_status();
 }
 
 sub help
@@ -383,4 +375,144 @@ sub flush_devices {
 	    }	    
 	}
     }
+}
+
+################################################################
+#
+# UN-ASSEMBLER
+#
+################################################################
+
+sub unasm_word
+{
+  my %unasm_table = (
+	1  => "ADD FADD",
+	2  => "SUB FSUB",
+	3  => "MUL FMUL",
+	4  => "DIV FDIV",
+	5  => "NUM CHAR HLT",
+	6  => "SLA SRA SLAX SRAX SLC SRC",
+	55 => "INCX DECX ENTX ENNX",
+	54 => "INC6 DEC6 ENT6 ENN6",
+	53 => "INC5 DEC5 ENT5 ENN5",
+	52 => "INC4 DEC4 ENT4 ENN4",
+	51 => "INC3 DEC3 ENT3 ENN3",
+	50 => "INC2 DEC2 ENT2 ENN2",
+	49 => "INC1 DEC1 ENT1 ENN1",
+	48 => "INCA DECA ENTA ENNA",
+	47 => "JXN JXZ JXP JXNN JXNZ JXNP",
+	46 => "J6N J6Z J6P J6NN J6NZ J6NP",
+	45 => "J5N J5Z J5P J5NN J5NZ J5NP",
+	44 => "J4N J4Z J4P J4NN J4NZ J4NP",
+	43 => "J3N J3Z J3P J3NN J3NZ J3NP",
+	42 => "J2N J2Z J2P J2NN J2NZ J2NP",
+	41 => "J1N J1Z J1P J1NN J1NZ J1NP",
+	40 => "JAN JAZ JAP JANN JANZ JANP",
+	39 => "JMP JSJ JOV JNOV JL JE LG JGE JNE JLE");
+
+    my @unasm_ops = qw(MOVE
+                       LDA  LD1  LD2  LD3  LD4  LD5  LD6  LDX
+                       LDAN LD1N LD2N LD3N LD4N LD5N LD6N LDXN
+                       STA  ST1  ST2  ST3  ST4  ST5  ST6  STX
+                       STJ  STZ  JBUS IOC  IN   OUT  JRED);
+
+    my @w = @_;
+    my $a = $w[1] * $mix->get_max_byte() + $w[2];
+    $a = -$a if $w[0] eq '-';
+    my $i = $w[3];
+    my $f = $w[4];
+    my $c = $w[5];
+    my $op;
+
+if ($c >= 7 && $c <= 38) {
+  $op = $unasm_ops[$c - 7];
+} elsif ($c == 0) {
+  $op = "NOP";
+} else {
+  $f -= 5 if 1 <= $c && $c <= 4;
+  my @t = split(/ /, $unasm_table{$c});
+  $op = @t[$f];
+}
+    $op = "???" if !defined $op;
+    return sprintf "%-5s%d,%d(%d)", $op, $a, $i, $f;
+}
+
+sub unasm
+{
+    my $loc = shift;
+    $loc = $next_unasm_loc if !defined $loc;
+    $loc = 0 if $loc > 3999 || $loc < 0;
+    
+    my $end = $loc + 10;
+    while ($loc >= 0 && $loc < $end && $loc < 4000) {
+	my @w = $mix->read_mem($loc);
+	printf "%04d: %s  %2d %2d %2d %2d %2d   %s\n",
+	  $loc, $w[0], $w[1], $w[2], $w[3], $w[4], $w[5],
+	  unasm_word(@w);
+	$loc++;
+    }
+    $next_unasm_loc = $loc;
+}
+
+sub alf_word
+{
+    my @word = @_;
+    my $s = "";
+    for (my $i = 1; $i <= 5; $i++) {
+	my $ch = mix_char($word[$i]);
+	$s .= $ch if  defined $ch;
+	$s .= ' ' if !defined $ch;
+    }
+    return $s;
+}
+
+sub print_machine_status
+{
+    my @word  = $mix->get_reg('rA');
+    my $value = $mix->get_reg('rA');
+    printf(" rA: %s %02d %02d %02d %02d %02d %s%-10d %s%s%s%s%s\n",
+	   $word[0],
+	   $word[1], $word[2], $word[3], $word[4], $word[5],
+	   $word[0],
+	   $value >= 0? $value : -$value,
+	   alf_word(@word));
+    @word  = $mix->get_reg('rX');
+    $value = $mix->get_reg('rX');
+    printf(" rX: %s %02d %02d %02d %02d %02d %s%-10d %s%s%s%s%s\n",
+	   $word[0],
+	   $word[1], $word[2], $word[3], $word[4], $word[5],
+	   $word[0],
+	   $value >= 0? $value : -$value,
+	   alf_word(@word));
+
+    for (my $i = 1; $i <= 6; $i++) {
+	@word  = $mix->get_reg("rI$i");
+	$value = $mix->get_reg("rI$i");
+	printf("rI$i: %s %02d %02d %s%04d   ",
+	       $word[0],
+	       $word[4], $word[5],
+	       $word[0],
+	       $value >= 0? $value : -$value);	       
+	print "\n" if $i % 2 == 0;
+    }
+
+    @word  = $mix->get_reg("rJ");
+    $value = $mix->get_reg("rJ");
+    printf(" rJ: %s %02d %02d %s%04d   ",
+	   $word[0],
+	   $word[4], $word[5],
+	   $word[0],
+	   $value >= 0? $value : -$value);	       
+    
+    my @flags = ("LT", "EQ", "GT");
+    
+    printf("%2s %2s  %su\n",
+	   $mix->get_overflow() ? "OV" : "NO",
+	   $flags[1 + $mix->get_cmp_flag()],
+	   $mix->get_current_time());
+
+    @word = $mix->read_mem($mix->get_pc());
+    printf("%04d: %s\n", $mix->get_pc(), unasm_word(@word));
+    printf("HALTED\n") if $mix->{status} == 1;
+    printf("ERROR: %s\n", $mix->get_last_error()) if $mix->{status} >= 2;
 }
