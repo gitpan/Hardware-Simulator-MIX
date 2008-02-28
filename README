@@ -49,30 +49,28 @@ FIRST FIVE HUNDRED PRIMES
 You can also enter the interactive mode. An example session is
 shown below.
 
->perl mixsim.pl --cardreader=primes.crd
+>perl mixsim.pl primes.crd
 
 
     M I X   S i m u l a t o r
 
 Type 'h' for help messages.
 MIX> g 3000
- rA: + 00 00 00 00 00  rX: + 00 33 30 30 30
-rI1: + 00 00 00 00 00  rI2: - 00 00 00 00 30
-rI3: + 00 00 00 46 56  rI4: + 00 00 00 00 00
-rI5: + 00 00 00 00 00  rI6: + 00 00 00 00 00
- rJ: + 00 00 00 00 14
-PC = 13  NEXT = 3000  NO EQ OK
-Previous inst: + 0 0 3 1 40
-    Next inst: + 0 0 0 18 35
+ rA: + 00 00 00 00 00 +0
+ rX: + 00 33 30 30 30 +8775582     3000
+rI1: + 00 00 +0000   rI2: - 00 30 -0030
+rI3: + 46 56 +3000   rI4: + 00 00 +0000
+rI5: + 00 00 +0000   rI6: + 00 00 +0000
+ rJ: + 00 14 +0014   NO EQ  1325u
+3000: IOC  0,0(18)
 MIX> g 3029
- rA: + 30 30 30 30 30  rX: + 30 30 32 32 39
-rI1: + 00 00 00 00 00  rI2: + 00 00 00 55 51
-rI3: + 00 00 00 00 19  rI4: + 00 00 00 31 51
-rI5: + 00 00 00 00 00  rI6: + 00 00 00 00 00
- rJ: + 00 00 00 47 18
-PC = 3028  NEXT = 3029  NO LT OK
-Previous inst: + 47 11 0 0 45
-    Next inst: + 0 0 0 2 5
+ rA: + 30 30 30 30 30 +511305630  00000
+ rX: + 30 30 32 32 39 +511313959  00229
+rI1: + 00 00 +0000   rI2: + 55 51 +3571
+rI3: + 00 19 +0019   rI4: + 31 51 +2035
+rI5: + 00 00 +0000   rI6: + 00 00 +0000
+ rJ: + 47 18 +3026   NO EQ  1183474u
+3029: HLT  0,0(2)
 MIX> prt
 Page 1 of 1
 FIRST FIVE HUNDRED PRIMES
@@ -85,7 +83,12 @@ MIX>
 ========================================================================
  C H A N G E   L O G
 ========================================================================
-0.20: Feb 27, 2008
+0.3: Feb 28, 2008
+
+    - Fix unasm bug CMP? not handled
+    - Fix MIX.pm: our deprecated, add document
+
+0.2: Feb 27, 2008
 
     - Add unasm in mixsim.pl
     - Add print machine status

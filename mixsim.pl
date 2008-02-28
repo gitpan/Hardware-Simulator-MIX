@@ -59,6 +59,8 @@ GetOptions ("bytesize=i"   => \$opt_byte_size,
 
 usage() if $opt_help;
 
+$opt_card_reader = shift @ARGV if $opt_card_reader eq "";
+
 my $next_unasm_loc = 0;
 
 my @default_loader = (
@@ -66,6 +68,7 @@ my @default_loader = (
 		      " 1A-H V A=  CEU 0AEH 1AEN    E  CLU  ABG H IH A A= J B. A  9                    ");
 
 my $mix = Hardware::Simulator::MIX->new(max_byte => $opt_byte_size);
+
 install_devices();
 
 ########################################################################
@@ -76,14 +79,12 @@ if ($opt_batch_mode) {
     $mix->reset();
     $mix->go();
     if ($mix->{status} == 2) {
-	print "MIX ERROR: " . $mix->{message} . "\n";
-	print "PC = " . $mix->{pc} . "\n";
-	print join(" ", $mix->read_mem($mix->{pc}));
+	print_machine_status();
     } 
     flush_devices();
     my $time = $mix->get_current_time();
     my $realtime = $time*$mix->{timeunit}/1000000;
-    print "MIX TIME: ", $time, ", ~ ", $realtime, " seconds\n";
+    print "MIX RUN TIME: ", $time, "u, ", $realtime, "s\n";
     exit;
 }
 
@@ -91,6 +92,7 @@ if ($opt_batch_mode) {
 # Interactive Mode
 ########################################################################
 
+my %break_points;
 my $cmdtable = init_cmdtable();
 my $memloc   = 0;
 $mix->reset();
@@ -128,6 +130,8 @@ sub init_cmdtable
 		  cb => sub { show_page(@_) } },
 	u => {  help => "Unasm",
 		cb => sub {unasm(@_)} },
+	b => {  help => "toggle break point",
+		cb => sub {toggle_break_point(@_)}},
         s => {  help => "Step",
                 cb => sub {step()} },
 	g => {  help => "Go to location",
@@ -145,7 +149,30 @@ sub init_cmdtable
     };
 }
 
-######################################################################
+sub toggle_break_point
+{
+    my $loc = shift;
+    return if !defined $loc;
+    return if $loc < 0 || $loc > 3999;
+    if (has_break_point($loc)) {
+	$break_points{$loc} = 0;
+    } else {
+	$break_points{$loc} = 1;
+    }
+}
+
+sub has_break_point
+{
+    my $loc = shift;
+    return 0 if !defined $loc;
+    return 0 if $loc < 0 || $loc > 3999;
+    if (exists $break_points{$loc}) {
+	return $break_points{$loc};
+    } else {
+	return 0;
+    }
+}
+
 # show_page(optional $page_num)
 #     print the newest page if $page_num is not specified.
 #
@@ -162,7 +189,6 @@ sub show_page
     print $page;   
 }
 
-
 sub step
 {
     $mix->step();
@@ -177,10 +203,10 @@ sub run_until
         return;
     }
     $mix->step();
-    while ($mix->{next_pc} != $loc && $mix->{status} == 0) {
+    while ($mix->get_pc() != $loc && $mix->{status} == 0) {
+	last if has_break_point($mix->get_pc());
         $mix->step();
     }
-
     print_machine_status();
 }
 
@@ -208,9 +234,6 @@ sub display_memory
 	    print '^' if!defined $ch;
 	}
 
-	if ($mix->get_exec_count($loc) > 0) {
-	    printf "  %8d %11d u", $mix->get_exec_count($loc), $mix->get_exec_time($loc);
-	}
 	print "\n";
     }
 
@@ -233,15 +256,8 @@ sub edit_memory
     }
 }
 
-sub load_card
-{
-    my ($loc) = @_;
-    print STDERR "LOAD CARD: ERROR MEMORY LOCATION $loc\n" if !defined $loc || $loc < 0 || $loc > 3999;
-    $mix->load_card($loc);
-}
-
 sub usage {
-    print STDERR "perl mixsim.pl [options]\n";
+    print STDERR "perl mixsim.pl [options] <mixprogram.crd>\n";
     print STDERR "   --bytesize=<number>\n";
     print STDERR "   --cardreader=<file>\n";
     print STDERR "   --cardpunch=<file>\n";
@@ -392,6 +408,7 @@ sub unasm_word
 	4  => "DIV FDIV",
 	5  => "NUM CHAR HLT",
 	6  => "SLA SRA SLAX SRAX SLC SRC",
+
 	55 => "INCX DECX ENTX ENNX",
 	54 => "INC6 DEC6 ENT6 ENN6",
 	53 => "INC5 DEC5 ENT5 ENN5",
@@ -424,15 +441,23 @@ sub unasm_word
     my $c = $w[5];
     my $op;
 
-if ($c >= 7 && $c <= 38) {
-  $op = $unasm_ops[$c - 7];
-} elsif ($c == 0) {
-  $op = "NOP";
-} else {
-  $f -= 5 if 1 <= $c && $c <= 4;
-  my @t = split(/ /, $unasm_table{$c});
-  $op = @t[$f];
-}
+  if ($c >= 7 && $c <= 38) {
+      $op = $unasm_ops[$c - 7];
+  } elsif ($c == 0) {
+      $op = "NOP";
+  } elsif ($c == 56) {
+      $op = "FCMP" if $f == 6;
+      $op = "CMPA" if $f != 6;
+  } elsif (57 <= $c && $c <= 62) {
+      $op = "CMP" . $c - 56;
+  } elsif (63 == $c) {
+      $op = "CMPX";
+  } else {
+      $f -= 5 if 1 <= $c && $c <= 4;
+      my @t = split(/ /, $unasm_table{$c});
+      $op = @t[$f];
+  }
+
     $op = "???" if !defined $op;
     return sprintf "%-5s%d,%d(%d)", $op, $a, $i, $f;
 }
@@ -446,9 +471,15 @@ sub unasm
     my $end = $loc + 10;
     while ($loc >= 0 && $loc < $end && $loc < 4000) {
 	my @w = $mix->read_mem($loc);
-	printf "%04d: %s  %2d %2d %2d %2d %2d   %s\n",
+	printf "%04d: %s  %2d %2d %2d %2d %2d  %s %-20s",
 	  $loc, $w[0], $w[1], $w[2], $w[3], $w[4], $w[5],
+	  has_break_point($loc)?">":" ",
 	  unasm_word(@w);
+
+	if ($mix->get_exec_count($loc) > 0) {
+	    printf "  %8d %11d u", $mix->get_exec_count($loc), $mix->get_exec_time($loc);
+	}
+	printf "\n";
 	$loc++;
     }
     $next_unasm_loc = $loc;
@@ -516,3 +547,24 @@ sub print_machine_status
     printf("HALTED\n") if $mix->{status} == 1;
     printf("ERROR: %s\n", $mix->get_last_error()) if $mix->{status} >= 2;
 }
+
+__END__
+
+=head1 NAME
+
+Command line tool for running MIX programs using Hardware::Simulator::MIX
+
+=head1 SYNOPSIS
+
+    perl mixsim.pl primes.crd
+    perldoc mixsim.pl
+
+=head1 DESCRIPTION
+
+The tools has basic debugging utilities. Like view memory (d),
+unassemble(u), toggling break points(b), step(s), run to location(g),
+view machine status(r, for registers).
+
+=head2 Commands
+
+=cut

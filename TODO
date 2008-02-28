@@ -2,13 +2,28 @@
 
 mixsim
 
-1. prepare card deck
+1. prepare card deck??
 2. save/load memory dump file
-3. cmdline: no need for --cardreader
+4. detail help
+5. find a great logo
 
 MIX.pm
 
 1. performance improvement
 2. test suites
-3. remove our and print routines
 4. documentation
+
+optimize the time spent on wait io device ready
+
+for example, JBUS  *
+
+MIXASM
+
+1. error report should be taken into account
+
+check var length, check the label field fit into 10 chars
+check the spaces
+
+check at the parse phase 1.
+
+see 360/MIX

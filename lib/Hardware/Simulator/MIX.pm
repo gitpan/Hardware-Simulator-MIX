@@ -1,38 +1,29 @@
 package Hardware::Simulator::MIX;
 
+use Exporter;
+
+@ISA = qw(Exporter);
+
+@EXPORT = qw(new reset step mix_char mix_char_code get_overflow 
+          is_halted read_mem write_mem set_max_byte get_pc 
+          get_reg get_current_time get_max_byte
+          get_exec_count get_exec_time get_last_error get_cmp_flag );
+
+$VERSION   = 0.3;
+
 use strict;
 use warnings;
 use Data::Dumper;
-require Exporter;
 
-our @ISA       = qw(Exporter);
-our @EXPORT    = qw( 
-		     new 
-		     reset 
-		     step 
-		     mix_char 
-		     mix_char_code 
-		     get_overflow 
-		     read_mem
-		     write_mem
-		     set_max_byte
-		     get_pc
-                     get_reg
-                     get_current_time
-                     get_exec_count
-                     get_exec_time
-                     get_last_error
-		     get_cmp_flag );
-
-our $VERSION   = 0.2;
+##############################################################################
+# Initialization
+##############################################################################
 
 sub new 
 {
     my $invocant = shift;
     my $class = ref($invocant) || $invocant;
-    my $self = {
-	@_ 
-	};
+    my $self = { @_ };
     bless $self, $class;
 
     $self->{max_byte} = 64 if !exists $self->{max_byte};
@@ -46,26 +37,6 @@ sub new
     $self->{dev} = {};
     $self->reset();
     return $self; 
-}
-
-sub get_max_byte
-{
-    my $self = shift;
-    return $self->{max_byte};
-}
-
-sub set_max_byte
-{
-    my $self = shift;
-    $self->{max_byte} = shift;
-}
-
-sub get_last_error
-{
-    my $self = shift;
-    return ""     if ($self->{status} == 0);
-    return "HALT" if ($self->{status} == 1);
-    return "ERROR: " . uc("$self->{message}") if $self->{status} >= 2;
 }
 
 sub reset 
@@ -113,76 +84,9 @@ sub reset
     $self->{message}   = 'running';
 }
 
-# For tape and disk units, each item in buffer is a word, like
-#   ['+', 0, 0, 0, 1, 2]
-# For card reader and punch, each item of buffer is a line.        
-# For printer, each item of buffer is a page.
-# e.g.   $mix->add_device(16, \@cards);
-sub add_device 
-{
-    my ($self, $u, $buf) = @_; 
-    return 0 if $u > 19 || $u < 0;
-    $self->{dev}->{$u} = {};
-    if (defined $buf) {
-	$self->{dev}->{$u}->{buf} = $buf;
-    } else {
-	$self->{dev}->{$u}->{buf} = [];
-    }
-    $self->{dev}->{$u}->{pos} = 0;
-    return 1;
-}
-
-sub go 
-{
-    my ($self) = @_;
-
-    $self->load_card(0);
-    while ($self->{status} == 0) {
-	$self->step();
-    }
-}
-
-sub get_overflow
-{
-    my $self = shift;
-    return $self->{ov_flag};
-}
-
-sub get_cmp_flag
-{
-    my $self = shift;
-    return $self->{cmp_flag};
-}
-
-sub get_pc
-{
-    my $self = shift;
-    return $self->{pc};
-}
-
-sub get_next_pc
-{
-    my $self = shift;
-    return $self->{next_pc};
-}
-
-sub get_current_time
-{
-    my $self = shift;
-    return $self->{time};
-}
-
-sub get_exec_count
-{
-    my ($self, $loc) = @_;
-    return @{$self->{execnt}}[$loc];
-}
-
-sub get_exec_time
-{
-    my ($self, $loc) = @_;
-    return @{$self->{exetime}}[$loc];
-}
+##############################################################################
+# Instruction Execution
+##############################################################################
 
 # Usage: $self->wait_until_device_ready($devnum)
 #
@@ -505,7 +409,322 @@ ERROR_INST:
     $self->{pc} = $self->{next_pc};
 }
 
-sub get_device_buffer {
+sub go 
+{
+    my ($self) = @_;
+
+    $self->load_card(0);
+    while ($self->{status} == 0) {
+	$self->step();
+    }
+}
+
+##############################################################################
+# Access registers and memory
+##############################################################################
+
+sub get_reg
+{
+    my ($self, $reg, $l, $r) = @_;
+
+    if (!exists $self->{$reg}) {
+	$self->{status} = 2;
+	$self->{message} = "accessing non-existed reg: $reg";
+	return undef;
+    }
+
+    if (defined $l) {
+	$r = $l if !defined $r;
+    } else {
+	$l = 0;
+	$r = 5;
+    }
+
+    my @word = @{$self->{$reg}};
+    my @retval = ();
+
+    for ($l .. $r) {
+	push @retval, $word[$_]
+    }
+    @retval = fix_word(@retval);
+    my $value = word_to_int(\@retval, $self->{max_byte});
+    return wantarray? @retval : $value;
+}
+
+sub set_reg
+{
+    my ($self, $reg, $wref) = @_;
+
+    if (!exists $self->{$reg}) {
+	$self->{status} = 2;
+	$self->{message} = "accessing non-existed reg: $reg";
+	return;
+    }
+    my @word = @{$wref};
+
+    my $sign = '+';
+    if (@{$wref}[0] eq '+' || @{$wref}[0] eq '-') {
+	$sign = shift @{$wref};
+    }
+    @{$self->{$reg}}[0] = $sign;
+
+    my $l = ($reg =~ m/r(I|J)/)?4:1;
+    my $r = 5;
+    while ($r >= $l && @word != 0) {
+	@{$self->{$reg}}[$r] = pop @word;
+	--$r;
+    }
+}
+
+
+sub read_mem_timed
+{
+    my $self = shift;
+    $self->{time} = $self->{time} + 1;
+    return $self->read_mem(@_);
+}
+
+sub write_mem_timed
+{
+    my $self = shift;
+    $self->{time} = $self->{time} + 1;
+    return $self->write_mem(@_);
+}
+
+
+sub read_mem
+{
+    my ($self,$loc,$l, $r) = @_;
+
+    if ($loc < 0 || $loc > 3999) {
+	$self->{status} = 2;
+	$self->{message} = "access invalid memory location: $loc";
+	return;
+    }
+
+    my @word = @{@{$self->{mem}}[$loc]};
+    if (defined $l) 
+    {
+	$r = $l if !defined $r;
+    }
+    else {
+	$l = 0;
+	$r = 5;
+    }
+
+    my @retval = ();
+    for ($l .. $r) {
+	push @retval, $word[$_]
+	}
+    @retval = fix_word(@retval);
+    my $value = word_to_int(\@retval, $self->{max_byte});
+    return wantarray? @retval : $value;
+}
+
+# $loc: location, must be in [0..3999]
+# $wref: reference to a mix word
+# $l,$r: field specification of destinated word, 0<=$l<=$r<=5
+sub write_mem
+{
+    my ($self,$loc,$wref, $l, $r) = @_;
+
+    if ($loc < 0 || $loc > 3999) {
+	$self->{status} = 2;
+	$self->{message} = "access invalid memory location: $loc";
+	return;
+    }
+
+    my @word = @{$wref};
+    debug("write mem ", word_to_string(@word) );
+
+    if (!defined $l) {
+	$l = 0;
+	$r = 5;
+    } elsif (!defined $r) {
+	$r = $l;
+    }
+    my $dest = @{$self->{mem}}[$loc];
+    debug("   to loc#$loc ", word_to_string(@{$dest}), "($l:$r)");
+    for (my $i = $r; $i >= $l;  $i--) {
+	@{$dest}[$i] = pop @word if $i > 0;
+	if ($i == 0) {
+	    if (@word > 0 && ($word[0] eq '+' || $word[0] eq '-')) {
+		@{$dest}[0]  = $word[0];
+	    } else {
+		@{$dest}[0]  = '+';
+	    }
+	}
+    }
+    debug("  => ", word_to_string(@{$dest}));
+}
+
+#######################################################################
+# Arithmetic Operations
+#######################################################################
+
+sub add
+{
+    my ($self, $w) = @_;
+    my $m = $self->{max_byte};
+    my $a = $self->{rA};
+
+    if (!int_to_word(word_to_int($w,$m)+word_to_int($a,$m), $a, $m)) {
+	$self->{ov_flag} = 1;
+    } else {
+	$self->{ov_flag} = 0;
+    }
+}
+
+sub minus
+{
+    my ($self, $w) = @_;
+    my @t = @{$w};
+    if ($t[0] eq '+') {
+	$t[0] = '-';
+    } else {
+	$t[0] = '+';
+    }
+    $self->add(\@t);
+}
+
+sub mul
+{
+    my ($self, $w) = @_;
+    my $a = $self->{rA};
+    my $x = $self->{rX};
+    my $m = $self->{max_byte};
+    my $M = $m*$m*$m*$m*$m;
+
+    my $v = word_to_int($a,$m)*word_to_int($w,$m);
+
+    my $sign = ($v>=0?'+':'-');
+    $v = -$v if $v < 0;
+
+    int_to_word($v%$M, $x, $m);
+    int_to_word(int($v/$M), $a, $m);
+
+    @{$x}[0] = @{$a}[0] = $sign;
+    $self->{ov_flag} = 0;
+}
+
+sub div
+{
+    my ($self, $w) = @_;
+    my $a = $self->{rA};
+    my $x = $self->{rX};
+    my $m = $self->{max_byte};
+    my $M = $m*$m*$m*$m*$m;
+
+    my $v  = word_to_uint($w,$m);
+
+    if ($v==0) {
+	$self->{ov_flag} = 1;
+	return;
+    }
+
+    my $va = word_to_uint($a,$m);
+    my $vx = word_to_uint($x,$m);
+    my $V  = $va*$M+$vx;
+
+    my $sign;
+    my $sa = @{$a}[0];
+    if ($sa eq @{$w}[0]) {
+	$sign = '+';
+    } else {
+	$sign = '-';
+    }
+    
+    int_to_word($V%$v, $x, $m);
+    @{$x}[0] = $sa;
+    if (int_to_word(int($V/$v), $a, $m)) {
+	$self->{ov_flag} = 0;
+    } else {
+	$self->{ov_flag} = 1;
+    }
+    @{$a}[0] = $sign;
+}
+
+
+sub set_max_byte
+{
+    my $self = shift;
+    $self->{max_byte} = shift;
+}
+
+sub get_max_byte
+{
+    my $self = shift;
+    return $self->{max_byte};
+}
+
+sub get_last_error
+{
+    my $self = shift;
+    return ""     if ($self->{status} == 0);
+    return "HALT" if ($self->{status} == 1);
+    return "ERROR: " . uc("$self->{message}") if $self->{status} >= 2;
+}
+
+
+# For tape and disk units, each item in buffer is a word, like
+#   ['+', 0, 0, 0, 1, 2]
+# For card reader and punch, each item of buffer is a line.        
+# For printer, each item of buffer is a page.
+# e.g.   $mix->add_device(16, \@cards);
+sub add_device 
+{
+    my ($self, $u, $buf) = @_; 
+    return 0 if $u > 19 || $u < 0;
+    $self->{dev}->{$u} = {};
+    if (defined $buf) {
+	$self->{dev}->{$u}->{buf} = $buf;
+    } else {
+	$self->{dev}->{$u}->{buf} = [];
+    }
+    $self->{dev}->{$u}->{pos} = 0;
+    return 1;
+}
+
+
+sub get_overflow
+{
+    my $self = shift;
+    return $self->{ov_flag};
+}
+
+sub get_cmp_flag
+{
+    my $self = shift;
+    return $self->{cmp_flag};
+}
+
+sub get_pc
+{
+    my $self = shift;
+    return $self->{pc};
+}
+
+sub get_current_time
+{
+    my $self = shift;
+    return $self->{time};
+}
+
+sub get_exec_count
+{
+    my ($self, $loc) = @_;
+    return @{$self->{execnt}}[$loc];
+}
+
+sub get_exec_time
+{
+    my ($self, $loc) = @_;
+    return @{$self->{exetime}}[$loc];
+}
+
+
+sub get_device_buffer 
+{
     my $self = shift;
     my $u = shift;
     if (exists $self->{dev}->{$u}) {
@@ -515,7 +734,8 @@ sub get_device_buffer {
     }    
 }
 
-sub write_tape {
+sub write_tape 
+{
     my ($self, $u, $m) = @_;
     my $tape = $self->{dev}->{$u};
     my $n = @{$tape->{buf}};    
@@ -530,7 +750,9 @@ sub write_tape {
     }    
 
 }
-sub read_tape {
+
+sub read_tape 
+{
     my ($self, $u, $m) = @_;
     my $tape = $self->{dev}->{$u};
     my $n = @{$tape->{buf}};    
@@ -704,65 +926,6 @@ sub new_page
     $devstat->{delay} = 10 * $self->{ms};
 }
 
-sub clear_status 
-{
-    my ($self) = @_;
-    $self->{status} = 0;
-}
-
-sub get_reg
-{
-    my ($self, $reg, $l, $r) = @_;
-
-    if (!exists $self->{$reg}) {
-	$self->{status} = 2;
-	$self->{message} = "accessing non-existed reg: $reg";
-	return undef;
-    }
-
-    if (defined $l) {
-	$r = $l if !defined $r;
-    } else {
-	$l = 0;
-	$r = 5;
-    }
-
-    my @word = @{$self->{$reg}};
-    my @retval = ();
-
-    for ($l .. $r) {
-	push @retval, $word[$_]
-    }
-    @retval = fix_word(@retval);
-    my $value = word_to_int(\@retval, $self->{max_byte});
-    return wantarray? @retval : $value;
-}
-
-sub set_reg
-{
-    my ($self, $reg, $wref) = @_;
-
-    if (!exists $self->{$reg}) {
-	$self->{status} = 2;
-	$self->{message} = "accessing non-existed reg: $reg";
-	return;
-    }
-    my @word = @{$wref};
-
-    my $sign = '+';
-    if (@{$wref}[0] eq '+' || @{$wref}[0] eq '-') {
-	$sign = shift @{$wref};
-    }
-    @{$self->{$reg}}[0] = $sign;
-
-    my $l = ($reg =~ m/r(I|J)/)?4:1;
-    my $r = 5;
-    while ($r >= $l && @word != 0) {
-	@{$self->{$reg}}[$r] = pop @word;
-	--$r;
-    }
-}
-
 sub is_halted 
 {
     my $self = shift;
@@ -770,183 +933,6 @@ sub is_halted
     return 1;
 }
 
-sub read_mem_timed
-{
-    my $self = shift;
-    $self->{time} = $self->{time} + 1;
-    return $self->read_mem(@_);
-}
-
-sub write_mem_timed
-{
-    my $self = shift;
-    $self->{time} = $self->{time} + 1;
-    return $self->write_mem(@_);
-}
-
-
-sub read_mem
-{
-    my ($self,$loc,$l, $r) = @_;
-
-    if ($loc < 0 || $loc > 3999) {
-	$self->{status} = 2;
-	$self->{message} = "access invalid memory location: $loc";
-	return;
-    }
-
-    my @word = @{@{$self->{mem}}[$loc]};
-    if (defined $l) 
-    {
-	$r = $l if !defined $r;
-    }
-    else {
-	$l = 0;
-	$r = 5;
-    }
-
-    my @retval = ();
-    for ($l .. $r) {
-	push @retval, $word[$_]
-	}
-    @retval = fix_word(@retval);
-    my $value = word_to_int(\@retval, $self->{max_byte});
-    return wantarray? @retval : $value;
-}
-
-
-
-
-#####################################################################
-## memfunc write_mem
-#
-# Calling: $xxx->write_mem($loc, $wref, $l, $r)
-#
-# $loc: location, must be in [0..3999]
-# $wref: reference to a mix word
-# $l,$r: field specification of destinated word, 0<=$l<=$r<=5
-#
-#####################################################################
-
-sub write_mem
-{
-    my ($self,$loc,$wref, $l, $r) = @_;
-
-    if ($loc < 0 || $loc > 3999) {
-	$self->{status} = 2;
-	$self->{message} = "access invalid memory location: $loc";
-	return;
-    }
-
-    my @word = @{$wref};
-    debug("write mem ", word_to_string(@word) );
-
-    if (!defined $l) {
-	$l = 0;
-	$r = 5;
-    } elsif (!defined $r) {
-	$r = $l;
-    }
-    my $dest = @{$self->{mem}}[$loc];
-    debug("   to loc#$loc ", word_to_string(@{$dest}), "($l:$r)");
-    for (my $i = $r; $i >= $l;  $i--) {
-	@{$dest}[$i] = pop @word if $i > 0;
-	if ($i == 0) {
-	    if (@word > 0 && ($word[0] eq '+' || $word[0] eq '-')) {
-		@{$dest}[0]  = $word[0];
-	    } else {
-		@{$dest}[0]  = '+';
-	    }
-	}
-    }
-    debug("  => ", word_to_string(@{$dest}));
-}
-
-#######################################################################
-# Private member functions
-#######################################################################
-
-sub add
-{
-    my ($self, $w) = @_;
-    my $m = $self->{max_byte};
-    my $a = $self->{rA};
-
-    if (!int_to_word(word_to_int($w,$m)+word_to_int($a,$m), $a, $m)) {
-	$self->{ov_flag} = 1;
-    } else {
-	$self->{ov_flag} = 0;
-    }
-}
-
-sub minus
-{
-    my ($self, $w) = @_;
-    my @t = @{$w};
-    if ($t[0] eq '+') {
-	$t[0] = '-';
-    } else {
-	$t[0] = '+';
-    }
-    $self->add(\@t);
-}
-
-sub mul
-{
-    my ($self, $w) = @_;
-    my $a = $self->{rA};
-    my $x = $self->{rX};
-    my $m = $self->{max_byte};
-    my $M = $m*$m*$m*$m*$m;
-
-    my $v = word_to_int($a,$m)*word_to_int($w,$m);
-
-    my $sign = ($v>=0?'+':'-');
-    $v = -$v if $v < 0;
-
-    int_to_word($v%$M, $x, $m);
-    int_to_word(int($v/$M), $a, $m);
-
-    @{$x}[0] = @{$a}[0] = $sign;
-    $self->{ov_flag} = 0;
-}
-
-sub div
-{
-    my ($self, $w) = @_;
-    my $a = $self->{rA};
-    my $x = $self->{rX};
-    my $m = $self->{max_byte};
-    my $M = $m*$m*$m*$m*$m;
-
-    my $v  = word_to_uint($w,$m);
-
-    if ($v==0) {
-	$self->{ov_flag} = 1;
-	return;
-    }
-
-    my $va = word_to_uint($a,$m);
-    my $vx = word_to_uint($x,$m);
-    my $V  = $va*$M+$vx;
-
-    my $sign;
-    my $sa = @{$a}[0];
-    if ($sa eq @{$w}[0]) {
-	$sign = '+';
-    } else {
-	$sign = '-';
-    }
-    
-    int_to_word($V%$v, $x, $m);
-    @{$x}[0] = $sa;
-    if (int_to_word(int($V/$v), $a, $m)) {
-	$self->{ov_flag} = 0;
-    } else {
-	$self->{ov_flag} = 1;
-    }
-    @{$a}[0] = $sign;
-}
 
 ########################################################################
 # Utilities
@@ -1105,7 +1091,7 @@ sub mix_char_code
 
 __END__
 
-    =head1 NAME
+=head1 NAME
 
 Hardware::Simulator::MIX - Knuth's famous virtual machine
 
@@ -1122,6 +1108,8 @@ Hardware::Simulator::MIX - Knuth's famous virtual machine
 
 This implementation includes the GO button and the default loader is the answer to
 Exercise 1.3 #26.
+
+Trace execution count and time for every instruction.
 
 For detailed architecture information, search MIX in wikipedia.
 
@@ -1168,56 +1156,97 @@ Available registers are listed below:
 
 Note: the names are case sensitive.
 
+    $mix->get_reg($reg_name);
+    $mix->set_reg($reg_name, $wref);
+
 =item Memory
 
-=item Flags
-
-$mix->get_cmp_flag() returns an integer. If the returned value is negative, 
-the flag is "L"; if the return value is positive, the flag is "G";
-if the return value is 0, the flag is "E".
-
-$mix->get_overflow() return 0 if there is no overflow. return 1 if overflow happen.
-
-Flags may be updated after execute new instruction.
-
-=item Status
-
-
-$mix->get_current_time() returns the current mix running time in time units since the last reset.
-
-=back
-
-=head1 METHODS
-
-=over 4
-
-=item $mix->get_reg($reg_name)
-
-=item $mix->is_halted()
-
-=item $mix->reset()
-
-=item $mix->read_mem($loc)
-
-=item $mix->read_mem($loc, $l)
-
-=item $mix->read_mem($loc, $l, $r)
+    $mix->read_mem($loc);
+    $mix->read_mem($loc, $l);
+    $mix->read_mem($loc, $l, $r);
 
 Return a MIX word from memory. C<$loc> must be among 0 to 3999. 
 If field spec C<$l> and C<$r> are missing, they are 0 and 5;
 If C<$r> is missing, it is same as C<$l>.
 
+    $mix->read_mem(4);
+
+equals to
+
+    $mix->read_mem(4,4);
+
+Write memory.
+
+    $mix->write_mem($loc, $wref, $l, $r);
+
+=item Status
+
+$mix->get_cmp_flag() returns an integer. If the returned value is
+negative, the flag is "L"; if the return value is positive, the flag
+is "G"; if the return value is 0, the flag is "E".
+
+$mix->get_overflow() return 0 if there is no overflow. return 1 if
+overflow happen.
+
+$mix->get_current_time() returns the current mix running time in time
+units since the last reset.
+
+$mix->is_halted() returns 1 if the machine halts.
+
+=back
+
+=head1 TRACING
+
+=over 4
+
+=item Get the execution count of an instruction
+
+    $mix->get_exec_count($loc);
+
+=item Get the time spent on an instruction
+
+The result is in MIX time units.
+
+    $mix->get_exec_time($loc);
+
+=back
+
+=head1 EXECUTION
+
+=over 4
+
+
+=item $mix->reset()
+
 =item $mix->step()
 
-=item $mix->set_reg($reg_name, $wref)
+=item $mix->go()
 
-=item $mix->write_mem($loc, $wref, $l, $r)
+=back
+
+=head1 IO DEVICES
+
+General information about MIX io devices.
+
+=over 4
+
+=item Card reader and punch
+
+=item Printer
+
+=item Tape
+
+=item Disk and drum
+
+=item Paper tape and typewriter
 
 =back
 
 =head1 AUTHOR
 
 Chaoji Li<lichaoji@gmail.com>
+
+http://www.litchie.net
 
 Please feel free to send a email to me if you have any question.
 
@@ -1230,7 +1259,7 @@ The package also includes a mixasm.pl which assembles MIXAL programs. Usage:
 This command will generate a .crd file which is a card deck to feed into the mixsim.pl.
 Typical usage:
 
-    perl mixsim.pl --cardreader=<yourprogram.crd>
+    perl mixsim.pl <yourprogram.crd>
 
 Then type 'h' at the command line so you can see a list of commands. You can load a MIX program
 into the machine and see it run.
