@@ -50,10 +50,10 @@ open FILE, "<$srcfile" || die "can't open $srcfile";
 while (<FILE>) 
 {
 	$ln++;
-#	printf "%04d: %s", $ln, $_;
+#	printf "%04d: %s", $ln, remove_comment($_);
 	next if m/^\s*$/;
 	next if m/^\*/;
-	parse1($_);
+	parse1(remove_comment($_));
 	last if $end_of_program;
 }
 
@@ -88,10 +88,9 @@ while (<FILE>) {
 	my $empty = 0;
 	$empty = 1 if m/^\s*$/;
 	$empty = 1 if m/^\*/;
-	parse2($_) if !$empty;
+	parse2(remove_comment($_)) if !$empty;
 
 	if (defined $code) {
-	#	print Dumper $code;
 		printf LSTFILE "%04d: %s ", $currloc, $code->{code};
 		$codes->{$currloc} = $code;
 	} else {
@@ -116,33 +115,6 @@ if ($error_count > 0) {
 	print STDERR "MIXASM: $error_count errors found.";
 	exit(1);
 }
-
-########################################################################
-# Generating MIX Code
-########################################################################
-
-=comment
-
-open MIXFILE, ">$mixfile" || die "can not open $mixfile for write";
-
-for ( sort {$a <=> $b} keys %{$codes} ) {
-	if ($codes->{$_}->{type} eq 'code') {
-		my $word = code_to_data_word($codes->{$_}->{code});
-		my @w = split /\s+/, $word;
-		printf MIXFILE "%04d: %s  [%s]\n", $_, $word, word_to_string(@w);
-	}
-}
-print MIXFILE "\n\n";
-for ( sort {$a <=> $b} keys %{$codes} ) {
-	if ($codes->{$_}->{type} eq 'data') {
-		my $word = $codes->{$_}->{code};
-		my @w = split /\s+/, $word;
-		printf MIXFILE "%04d: %s  [%s]\n", $_, $word, word_to_string(@w);
-	}
-}
-close MIXFILE;
-
-=cut
 
 ########################################################################
 # Generating Card deck
@@ -221,8 +193,6 @@ sub gen_card {
 	return $crd;
 }
 
-
-
 exit(0);
 
 ########################################################################
@@ -233,174 +203,185 @@ sub debug {return; print $_ foreach @_ }
 
 sub init_optable
 {
-$optable = {
-	NOP  => { c => 0, f => 1, t => 1 },
-	ADD  => { c => 1, f => 5, t => 2 },
-	FADD => { c => 1, f => 6, t => 2 },
-	SUB  => { c => 2, f => 5, t => 2 },
-	FSUB => { c => 2, f => 6, t => 2 },
-	MUL  => { c => 3, f => 5, t => 10 },
-	FMUL => { c => 3, f => 6, t => 10 },
-	DIV  => { c => 4, f => 5, t => 12 },
-	FDIV => { c => 4, f => 6, t => 12 },
-	NUM  => { c => 5, f => 0, t => 1 },
-	CHAR => { c => 5, f => 1, t => 1 },
-	HLT  => { c => 5, f => 2, t => 1 },
-	SLA  => { c => 6, f => 0, t => 2 },
-	SRA  => { c => 6, f => 1, t => 2 },
-	SLAX => { c => 6, f => 2, t => 2 },
-	SRAX => { c => 6, f => 3, t => 2 },
-	SLC  => { c => 6, f => 4, t => 2 },
-	SRC  => { c => 6, f => 5, t => 2 },
-	MOVE => { c => 7, f => 1, t => 1 }, ## t = 1 + 2f
-	LDA  => { c => 8, f => 5, t => 2 },
-	LD1  => { c => 9, f => 5, t => 2 },
-	LD2  => { c =>10, f => 5, t => 2 },
-	LD3  => { c =>11, f => 5, t => 2 },
-	LD4  => { c =>12, f => 5, t => 2 },
-	LD5  => { c =>13, f => 5, t => 2 },
-	LD6  => { c =>14, f => 5, t => 2 },
-	LDX  => { c =>15, f => 5, t => 2 },
-	LDAN => { c =>16, f => 5, t => 2 },
-	LD1N => { c =>17, f => 5, t => 2 },
-	LD2N => { c =>18, f => 5, t => 2 },
-	LD3N => { c =>19, f => 5, t => 2 },
-	LD4N => { c =>20, f => 5, t => 2 },
-	LD5N => { c =>21, f => 5, t => 2 },
-	LD6N => { c =>22, f => 5, t => 2 },
-	LDXN => { c =>23, f => 5, t => 2 },
-	STA  => { c =>24, f => 5, t => 2 },
-	ST1  => { c =>25, f => 5, t => 2 },
-	ST2  => { c =>26, f => 5, t => 2 },
-	ST3  => { c =>27, f => 5, t => 2 },
-	ST4  => { c =>28, f => 5, t => 2 },
-	ST5  => { c =>29, f => 5, t => 2 },
-	ST6  => { c =>30, f => 5, t => 2 },
-	STX  => { c =>31, f => 5, t => 2 },
-	STJ  => { c =>32, f => 2, t => 2 },
-	STZ  => { c =>33, f => 5, t => 2 },
-	JBUS => { c =>34, f => 0, t => 1 },
-	IOC  => { c =>35, f => 0, t => 1 }, ## 1 + interlock time
-	IN   => { c =>36, f => 0, t => 1 }, ## 1 + interlock time
-	OUT  => { c =>37, f => 0, t => 1 }, ## 1 + interlock time
-	JRED => { c =>38, f => 0, t => 1 },
-	JMP  => { c =>39, f => 0, t => 1 },
-	JSJ  => { c =>39, f => 1, t => 1 },
-	JOV  => { c =>39, f => 2, t => 1 },
-	JNOV => { c =>39, f => 3, t => 1 },
-	JL   => { c =>39, f => 4, t => 1 },
-	JE   => { c =>39, f => 5, t => 1 },
-	JG   => { c =>39, f => 6, t => 1 },
-	JGE  => { c =>39, f => 7, t => 1 },
-	JNE  => { c =>39, f => 8, t => 1 },
-	JLE  => { c =>39, f => 9, t => 1 },
+    $optable = {
+	NOP  => { c => 0, f => 1 },
+	ADD  => { c => 1, f => 5 },
+	FADD => { c => 1, f => 6 },
+	SUB  => { c => 2, f => 5 },
+	FSUB => { c => 2, f => 6 },
+	MUL  => { c => 3, f => 5 },
+	FMUL => { c => 3, f => 6 },
+	DIV  => { c => 4, f => 5 },
+	FDIV => { c => 4, f => 6 },
+	NUM  => { c => 5, f => 0 },
+	CHAR => { c => 5, f => 1 },
+	HLT  => { c => 5, f => 2 },
+	SLA  => { c => 6, f => 0 },
+	SRA  => { c => 6, f => 1 },
+	SLAX => { c => 6, f => 2 },
+	SRAX => { c => 6, f => 3 },
+	SLC  => { c => 6, f => 4 },
+	SRC  => { c => 6, f => 5 },
+	MOVE => { c => 7, f => 1 }, ## t = 1 + 2f
+	LDA  => { c => 8, f => 5 },
+	LD1  => { c => 9, f => 5 },
+	LD2  => { c =>10, f => 5 },
+	LD3  => { c =>11, f => 5 },
+	LD4  => { c =>12, f => 5 },
+	LD5  => { c =>13, f => 5 },
+	LD6  => { c =>14, f => 5 },
+	LDX  => { c =>15, f => 5 },
+	LDAN => { c =>16, f => 5 },
+	LD1N => { c =>17, f => 5 },
+	LD2N => { c =>18, f => 5 },
+	LD3N => { c =>19, f => 5 },
+	LD4N => { c =>20, f => 5 },
+	LD5N => { c =>21, f => 5 },
+	LD6N => { c =>22, f => 5 },
+	LDXN => { c =>23, f => 5 },
+	STA  => { c =>24, f => 5 },
+	ST1  => { c =>25, f => 5 },
+	ST2  => { c =>26, f => 5 },
+	ST3  => { c =>27, f => 5 },
+	ST4  => { c =>28, f => 5 },
+	ST5  => { c =>29, f => 5 },
+	ST6  => { c =>30, f => 5 },
+	STX  => { c =>31, f => 5 },
+	STJ  => { c =>32, f => 2 },
+	STZ  => { c =>33, f => 5 },
+	JBUS => { c =>34, f => 0 },
+	IOC  => { c =>35, f => 0 }, ## 1 + interlock time
+	IN   => { c =>36, f => 0 }, ## 1 + interlock time
+	OUT  => { c =>37, f => 0 }, ## 1 + interlock time
+	JRED => { c =>38, f => 0 },
+	JMP  => { c =>39, f => 0 },
+	JSJ  => { c =>39, f => 1 },
+	JOV  => { c =>39, f => 2 },
+	JNOV => { c =>39, f => 3 },
+	JL   => { c =>39, f => 4 },
+	JE   => { c =>39, f => 5 },
+	JG   => { c =>39, f => 6 },
+	JGE  => { c =>39, f => 7 },
+	JNE  => { c =>39, f => 8 },
+	JLE  => { c =>39, f => 9 },
 
-	JAN  => { c =>40, f => 0, t => 1 },
-	JAZ  => { c =>40, f => 1, t => 1 },
-	JAP  => { c =>40, f => 2, t => 1 },
-	JANN => { c =>40, f => 3, t => 1 },
-	JANZ => { c =>40, f => 4, t => 1 },
-	JANP => { c =>40, f => 5, t => 1 },
+	JAN  => { c =>40, f => 0 },
+	JAZ  => { c =>40, f => 1 },
+	JAP  => { c =>40, f => 2 },
+	JANN => { c =>40, f => 3 },
+	JANZ => { c =>40, f => 4 },
+	JANP => { c =>40, f => 5 },
 
-	J1N  => { c =>41, f => 0, t => 1 },
-	J1Z  => { c =>41, f => 1, t => 1 },
-	J1P  => { c =>41, f => 2, t => 1 },
-	J1NN => { c =>41, f => 3, t => 1 },
-	J1NZ => { c =>41, f => 4, t => 1 },
-	J1NP => { c =>41, f => 5, t => 1 },
+	J1N  => { c =>41, f => 0 },
+	J1Z  => { c =>41, f => 1 },
+	J1P  => { c =>41, f => 2 },
+	J1NN => { c =>41, f => 3 },
+	J1NZ => { c =>41, f => 4 },
+	J1NP => { c =>41, f => 5 },
 
-	J2N  => { c =>42, f => 0, t => 1 },
-	J2Z  => { c =>42, f => 1, t => 1 },
-	J2P  => { c =>42, f => 2, t => 1 },
-	J2NN => { c =>42, f => 3, t => 1 },
-	J2NZ => { c =>42, f => 4, t => 1 },
-	J2NP => { c =>42, f => 5, t => 1 },
+	J2N  => { c =>42, f => 0 },
+	J2Z  => { c =>42, f => 1 },
+	J2P  => { c =>42, f => 2 },
+	J2NN => { c =>42, f => 3 },
+	J2NZ => { c =>42, f => 4 },
+	J2NP => { c =>42, f => 5 },
 
-	J3N  => { c =>43, f => 0, t => 1 },
-	J3Z  => { c =>43, f => 1, t => 1 },
-	J3P  => { c =>43, f => 2, t => 1 },
-	J3NN => { c =>43, f => 3, t => 1 },
-	J3NZ => { c =>43, f => 4, t => 1 },
-	J3NP => { c =>43, f => 5, t => 1 },
+	J3N  => { c =>43, f => 0 },
+	J3Z  => { c =>43, f => 1 },
+	J3P  => { c =>43, f => 2 },
+	J3NN => { c =>43, f => 3 },
+	J3NZ => { c =>43, f => 4 },
+	J3NP => { c =>43, f => 5 },
 
-	J4N  => { c =>44, f => 0, t => 1 },
-	J4Z  => { c =>44, f => 1, t => 1 },
-	J4P  => { c =>44, f => 2, t => 1 },
-	J4NN => { c =>44, f => 3, t => 1 },
-	J4NZ => { c =>44, f => 4, t => 1 },
-	J4NP => { c =>44, f => 5, t => 1 },
+	J4N  => { c =>44, f => 0 },
+	J4Z  => { c =>44, f => 1 },
+	J4P  => { c =>44, f => 2 },
+	J4NN => { c =>44, f => 3 },
+	J4NZ => { c =>44, f => 4 },
+	J4NP => { c =>44, f => 5 },
 
-	J5N  => { c =>45, f => 0, t => 1 },
-	J5Z  => { c =>45, f => 1, t => 1 },
-	J5P  => { c =>45, f => 2, t => 1 },
-	J5NN => { c =>45, f => 3, t => 1 },
-	J5NZ => { c =>45, f => 4, t => 1 },
-	J5NP => { c =>45, f => 5, t => 1 },
+	J5N  => { c =>45, f => 0 },
+	J5Z  => { c =>45, f => 1 },
+	J5P  => { c =>45, f => 2 },
+	J5NN => { c =>45, f => 3 },
+	J5NZ => { c =>45, f => 4 },
+	J5NP => { c =>45, f => 5 },
 
-	J6N  => { c =>46, f => 0, t => 1 },
-	J6Z  => { c =>46, f => 1, t => 1 },
-	J6P  => { c =>46, f => 2, t => 1 },
-	J6NN => { c =>46, f => 3, t => 1 },
-	J6NZ => { c =>46, f => 4, t => 1 },
-	J6NP => { c =>46, f => 5, t => 1 },
+	J6N  => { c =>46, f => 0 },
+	J6Z  => { c =>46, f => 1 },
+	J6P  => { c =>46, f => 2 },
+	J6NN => { c =>46, f => 3 },
+	J6NZ => { c =>46, f => 4 },
+	J6NP => { c =>46, f => 5 },
 
-	JXN  => { c =>47, f => 0, t => 1 },
-	JXZ  => { c =>47, f => 1, t => 1 },
-	JXP  => { c =>47, f => 2, t => 1 },
-	JXNN => { c =>47, f => 3, t => 1 },
-	JXNZ => { c =>47, f => 4, t => 1 },
-	JXNP => { c =>47, f => 5, t => 1 },
+	JXN  => { c =>47, f => 0 },
+	JXZ  => { c =>47, f => 1 },
+	JXP  => { c =>47, f => 2 },
+	JXNN => { c =>47, f => 3 },
+	JXNZ => { c =>47, f => 4 },
+	JXNP => { c =>47, f => 5 },
 
-	INCA => { c =>48, f => 0, t => 1 },
-	DECA => { c =>48, f => 1, t => 1 },
-	ENTA => { c =>48, f => 2, t => 1 },
-	ENNA => { c =>48, f => 3, t => 1 },
+	INCA => { c =>48, f => 0 },
+	DECA => { c =>48, f => 1 },
+	ENTA => { c =>48, f => 2 },
+	ENNA => { c =>48, f => 3 },
 
-	INC1 => { c =>49, f => 0, t => 1 },
-	DEC1 => { c =>49, f => 1, t => 1 },
-	ENT1 => { c =>49, f => 2, t => 1 },
-	ENN1 => { c =>49, f => 3, t => 1 },
+	INC1 => { c =>49, f => 0 },
+	DEC1 => { c =>49, f => 1 },
+	ENT1 => { c =>49, f => 2 },
+	ENN1 => { c =>49, f => 3 },
 
-	INC2 => { c =>50, f => 0, t => 1 },
-	DEC2 => { c =>50, f => 1, t => 1 },
-	ENT2 => { c =>50, f => 2, t => 1 },
-	ENN2 => { c =>50, f => 3, t => 1 },
+	INC2 => { c =>50, f => 0 },
+	DEC2 => { c =>50, f => 1 },
+	ENT2 => { c =>50, f => 2 },
+	ENN2 => { c =>50, f => 3 },
 
-	INC3 => { c =>51, f => 0, t => 1 },
-	DEC3 => { c =>51, f => 1, t => 1 },
-	ENT3 => { c =>51, f => 2, t => 1 },
-	ENN3 => { c =>51, f => 3, t => 1 },
+	INC3 => { c =>51, f => 0 },
+	DEC3 => { c =>51, f => 1 },
+	ENT3 => { c =>51, f => 2 },
+	ENN3 => { c =>51, f => 3 },
 
-	INC4 => { c =>52, f => 0, t => 1 },
-	DEC4 => { c =>52, f => 1, t => 1 },
-	ENT4 => { c =>52, f => 2, t => 1 },
-	ENN4 => { c =>52, f => 3, t => 1 },
+	INC4 => { c =>52, f => 0 },
+	DEC4 => { c =>52, f => 1 },
+	ENT4 => { c =>52, f => 2 },
+	ENN4 => { c =>52, f => 3 },
 
-	INC5 => { c =>53, f => 0, t => 1 },
-	DEC5 => { c =>53, f => 1, t => 1 },
-	ENT5 => { c =>53, f => 2, t => 1 },
-	ENN5 => { c =>53, f => 3, t => 1 },
+	INC5 => { c =>53, f => 0 },
+	DEC5 => { c =>53, f => 1 },
+	ENT5 => { c =>53, f => 2 },
+	ENN5 => { c =>53, f => 3 },
 
-	INC6 => { c =>54, f => 0, t => 1 },
-	DEC6 => { c =>54, f => 1, t => 1 },
-	ENT6 => { c =>54, f => 2, t => 1 },
-	ENN6 => { c =>54, f => 3, t => 1 },
+	INC6 => { c =>54, f => 0 },
+	DEC6 => { c =>54, f => 1 },
+	ENT6 => { c =>54, f => 2 },
+	ENN6 => { c =>54, f => 3 },
 	
-	INCX => { c =>55, f => 0, t => 1 },
-	DECX => { c =>55, f => 1, t => 1 },
-	ENTX => { c =>55, f => 2, t => 1 },
-	ENNX => { c =>55, f => 3, t => 1 },
+	INCX => { c =>55, f => 0 },
+	DECX => { c =>55, f => 1 },
+	ENTX => { c =>55, f => 2 },
+	ENNX => { c =>55, f => 3 },
 
-	CMPA => { c =>56, f => 5, t => 2 },
-	FCMP => { c =>56, f => 6, t => 2 },
-	CMP1 => { c =>57, f => 5, t => 2 },
-	CMP2 => { c =>58, f => 5, t => 2 },
-	CMP3 => { c =>59, f => 5, t => 2 },
-	CMP4 => { c =>60, f => 5, t => 2 },
-	CMP5 => { c =>61, f => 5, t => 2 },
-	CMP6 => { c =>62, f => 5, t => 2 },
-	CMPX => { c =>63, f => 5, t => 2 }
-};
+	CMPA => { c =>56, f => 5 },
+	FCMP => { c =>56, f => 6 },
+	CMP1 => { c =>57, f => 5 },
+	CMP2 => { c =>58, f => 5 },
+	CMP3 => { c =>59, f => 5 },
+	CMP4 => { c =>60, f => 5 },
+	CMP5 => { c =>61, f => 5 },
+	CMP6 => { c =>62, f => 5 },
+	CMPX => { c =>63, f => 5 }
+    };
+}
+
+# comments start with the first blank column following column 20
+sub remove_comment
+{
+    my $line = shift;
+    return $line if length($line) < 21;
+    my $s1 = substr($line, 0, 20);
+    my $s2 = substr($line, 20);
+    $s2 =~ s/\s+.*$//;
+    return $s1 . $s2;
 }
 
 sub parse1 
@@ -448,7 +429,6 @@ sub parse1
 		    error("undefined w value for EQU");
 		}
 	} elsif ( $value eq 'ORIG' ) {
-
 		# undef symbol is forbidden 
 		# in ORIG statement
 		$parse_phase = 2; 
@@ -1005,13 +985,93 @@ __END__
 
 =head1 DESCRIPTION
 
-whitespaces are important in MIXAL programs.
-They are used for separating label from op, and op from operands.
-There should be no spaces in operand field. 
 
-e.g.
+=head1 OUTPUT
+
+=over 4
+
+=item file dot crd
+
+A file contains card deck produced by assembler. 
+Each line is regarded as a card, holding no more than 80 characters.
+For example, the content of C<primes.crd>:
+
+    DATA 101000000000002
+    DATA 5199501031018470001611333000219642003200942250321184086
+    DATA 120240000002035
+    DATA 320490000002010000000049I0000000003
+    CODE 730000000001187053739552905376576740000262193015702869807906264090000524338
+    CODE 730070000524467000000017600000083750025964868078800497500259649200000262195
+    CODE 730140788529575078721847105229784690533463220001310738A01313341970025973064
+    CODE 730210000000069000001718300002622600013107317079167505300000175730006308172
+    CODE 2302807914127810000000133
+    TRANS03000
+
+This file serves as input to the loader of simulator C<mixsim.pl>. 
+Columns 1-5 are ignored. The C<DATA>, C<CODE>, and C<TRANS> are there only for
+documenting the type of each card.
+Column 6 is the number of consecutive words on this card.
+Columns 7-10 is the location of word 1, which is always greater than 100, so it
+does not overlay the loading router.
+Columns 11-20, 21-30, ..., 71-80 are the words to be loaded.
+
+For example, a card which has
+
+    DATA 320490000002010000000049I0000000003
+
+should cause the following information to be loaded:
+
+    2049: + 0000002010
+    2050: - 0000000499
+    2051: + 0000000003
+
+You may have noticed that the word "000000049I" is loaded as "-499".
+That is a tricky way to punch sign of word on card without using additional characters.
+
+    SPACE 0
+      A   1
+      B   2
+      C   3
+      D   4
+      E   5
+      F   6
+      G   7
+      H   8
+      I   9
+
+If the least significant digit is among the special characters above,
+the sign of word it represents is negative.
+
+If the column 6 is `0', then this card is a transfer card. That means, 
+after the loader reads this card, MIX jumps to location punched
+in columns 7-10.
+
+=item file dot lst
+
+MIXAL program listing, 
+with the assembled words and source lines sitting side by side.
+
+=back
+
+=head1 MIXAL SYNTAX
+
+General rules:
+
+    1. No tabs allowed.
+    2. Lines started with star will be ignored.
+    3. Empty lines are ignored.
+
+Source line can be separated into four fields:
+
+    1. Label field: columns 1-10
+    2. Op field: columns 11-15
+    3. Address field: from columns 16 to the first blank column
+    4. Comment field: after column 20, started with a blank column.
+
+Whitespaces are important in MIXAL programs.
+They are used for separating label from op, and op from operands.
+There should be no spaces in address field. 
 
     CHANGEM   ENT2  0,3    => OK
     CHANGEM   ENT2  0, 3   => ERROR
-
 

@@ -76,6 +76,7 @@ install_devices();
 ########################################################################
 
 if ($opt_batch_mode) {
+    my $start_time = time();
     $mix->reset();
     $mix->go();
     if ($mix->{status} == 2) {
@@ -85,6 +86,8 @@ if ($opt_batch_mode) {
     my $time = $mix->get_current_time();
     my $realtime = $time*$mix->{timeunit}/1000000;
     print "MIX RUN TIME: ", $time, "u, ", $realtime, "s\n";
+    my $t = time() - $start_time;
+    print "Simulation time: $t s\n";
     exit;
 }
 

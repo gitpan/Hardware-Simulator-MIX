@@ -1,23 +1,61 @@
 
+         -  Y    =    =    =   =   =    Y  -
+       | o \|  	 | \/ |    |     x      |/ o |
+        \ /  \   =    =    =   =   =   /  \ /
 
-mixsim
+
+MIX.pm
+======
+
+ (This is the CORE, so it is very important)
+
+
+Full IO implementation          5h
+   - Plan/Doc/Buffer            1h   1h,50%
+   - Tape/Disk                  1h   this is relatively easy
+   - Pape tape/                 2h   1h,50% need investigation? what's the diff between
+                                     typewriter and paper tape? what they are put together
+				     30min, I still didn't figure out
+				     how to implement this device
+
+   - optimize the time spent    1h
+     on wait io device ready:
+     JBUS *
+
+Documentation
+   - all public function calls documented
+   - arch design / why I choose the design
+   - why the function has such protocol
+   - in what way they are expected to be used
+   - defects, now I may think some places could be improved
+   - how to simplify??
+   -
+
+
+Performance improvement
+Test suites
+
+
+
+Use get_trace_stat() instead of separated get_exec_time() and get_exec_cnt().
+
+
+MIXSIM
+======
 
 1. prepare card deck??
 2. save/load memory dump file
 4. detail help
-5. find a great logo
 
-MIX.pm
+  doc
 
-1. performance improvement
-2. test suites
-4. documentation
+accept a mixasm file directly?
 
-optimize the time spent on wait io device ready
+explaination of card deck?
 
-for example, JBUS  *
 
 MIXASM
+======
 
 1. error report should be taken into account
 
@@ -27,3 +65,14 @@ check the spaces
 check at the parse phase 1.
 
 see 360/MIX
+
+support comment
+
+
+
+         -  Y    =    =    =   =   =    Y  -
+       | o \|  	 | \/ |    |     x      |/ o |
+        \ /  \   =    =    =   =   =   /  \ /
+
+
+

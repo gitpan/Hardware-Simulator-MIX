@@ -1,42 +1,76 @@
-====== Revised: Jan 14, 2007,  Chaoji Li<lichaoji@ict.ac.cn> ===========
 
-There are some other MIX simulators in the world, but none of them
-is in Perl. 
 
-That's why I start to write this one. 
+                -  Y    =    =    =   =   =    Y  -
+              | o \|    | \/ |    |     x      |/ o |
+               \ /  \   =    =    =   =   =   /  \ /
 
-It supports almost all instructions, except support for typewriter,
-paper tape, and float operations.
+
+     T H E   M I X   S I M U L A T O R   A N D   A S S E M B L E R
+
+                   Chaoji Li<lichaoji@gmail.com>
+
+                         March 22, 2008
+
+
+There are so many MIX simulators all over the world. The reason for this
+one is that it is written in perl as a well defined module, aiming to be
+reused. People can also use this one as a reference model when testing 
+their own simulators. I suggest everyone who really wants to read the
+programs in TAOCP should implement one by himself, so as to understand
+the MIX machine and the MIX instructions better. MIX is also similar to
+various machines produced in 1960s. To write the simulator yourself would
+be a rewarding trip if you are curious about the history of computer 
+programming.
+
+This simulator supports almost all instructions, except for float operations.
 
 Card reader/punch and printer are supported.
 Disk/tape are partial supported.
 
-========================================================================
+
+===============
  I N S T A L L
-========================================================================
+===============
 
-Install "Build" module from CPAN.
+(1) Extract the source tar ball:
 
-perl Build.PL
-perl Build
-perl Build test
-perl Build install
+    tar -xvzf Hardware-Simulator-MIX-<version>.tar.gz
 
-========================================================================
+(2) Install "Build" module from CPAN.
+(3) Run following commands in the extracted directory:
+
+        perl Build.PL
+        perl Build
+        perl Build test
+        perl Build install
+
+Steps (2) and (3) is not required if you only want to play
+within the extracted directory.
+
+
+===========================
+ D O C U M E N T A T I O N
+===========================
+
+perldoc mixsim.pl
+perldoc mixasm.pl
+perldoc Hardware::Simulator::MIX
+perldoc doc/mix.pod
+
+=======================
  Q U I C K   S T A R T
-========================================================================
+=======================
 
 In the package directory, 
 
 >perl mixasm.pl mixal/primes
 
-Three files will be generated in the current directory.
+Two files will be generated in the current directory.
 
    * primes.lst -- listing files
-   * primes.mix -- memory dump file
    * primes.crd -- card deck file which can be loaded by mix simulator
 
->perl mixsim.pl --batch --cardreader=primes.crd
+>perl mixsim.pl --batch primes.crd
 
 The outputs are:
 
@@ -83,6 +117,11 @@ MIX>
 ========================================================================
  C H A N G E   L O G
 ========================================================================
+0.4: May 22, 2008
+
+    - Performance improve, nearly 4 times
+    - document
+
 0.3: Feb 28, 2008
 
     - Fix unasm bug CMP? not handled
