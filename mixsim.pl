@@ -269,8 +269,8 @@ sub usage {
     print STDERR "   --disk[0-7]=<file>\n";
     print STDERR "   --batch\n";
     print STDERR "   --help\n";
-    print STDERR "   --myloader=<cardfile>\n";
-    print STDERR "   --verbose\n";
+#    print STDERR "   --myloader=<cardfile>\n";
+#    print STDERR "   --verbose\n";
     exit(1);
 }
 
@@ -331,7 +331,8 @@ sub flush_devices {
     my $u = 0;
     foreach (@opt_tape) {
 	if ($_ ne "") {
-	    if (open DISKFILE, ">$_") {
+	    my $tapefile = $_;
+	    if (open DISKFILE, ">$tapefile") {
 		my $buf = $mix->get_device_buffer($u);
 		foreach (@{$buf}) {
 		    my @w = @{$_};
@@ -340,14 +341,15 @@ sub flush_devices {
 		}
 		close DISKFILE;
 	    } else {
-		print STDERR "MIX: can not flush unit %u to file $_\n";
+		print STDERR "MIX: can not flush unit %u to file $tapefile\n";
 	    }	
 	}
 	$u++;
     }
     foreach (@opt_disk) {
 	if ($_ ne "") {
-	    if (open DISKFILE, ">$_") {
+	    my $diskfile = $_;
+	    if (open DISKFILE, ">$diskfile") {
 		my $buf = $mix->get_device_buffer($u);
 		foreach (@{$buf}) {
 		    my @w = @{$_};
@@ -356,7 +358,7 @@ sub flush_devices {
 		}
 		close DISKFILE;
 	    } else {
-		print STDERR "MIX: can not flush unit %u to file $_\n";
+		print STDERR "MIX: can not flush unit %u to file $diskfile\n";
 	    }
 	}
 	$u++;
@@ -561,6 +563,23 @@ Command line tool for running MIX programs using Hardware::Simulator::MIX
 
     perl mixsim.pl primes.crd
     perldoc mixsim.pl
+
+=head1 OPTIONS
+
+    --bytesize=<integer>    between 64 and 100
+    --cardreader=<file>     if not specified, use the file specified in arguments
+    --cardpunch=<file>
+    --printer=<file>
+    --tape0=<file>
+    --tape1=<file>
+    ...
+    --tape7=<file>
+    --disk0=<file>
+    --disk1=<file>
+    ...
+    --disk7=<file>
+    --batch            Run without console
+    --help
 
 =head1 DESCRIPTION
 

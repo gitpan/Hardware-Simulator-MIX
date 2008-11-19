@@ -2,6 +2,7 @@ Build.PL
 lib/Hardware/Simulator/MIX.pm
 mixsim.pl
 mixasm.pl
+mixrun.pl
 MANIFEST
 README.TXT
 TODO
@@ -21,9 +22,14 @@ mixal/primes
 mixal/loader
 mixal/stress
 mixal/josephus1
+mixal/hello
+mixal/mystery
+mixal/tsort
+mixal/tsort_tape1
 doc/mix_rfc.txt
 doc/mix.pod
 doc/ibm650.jpg
 doc/MIX360-User-Guide.PDF
 doc/mixsim-demo.GIF
 Makefile.PL
+ChangeLog

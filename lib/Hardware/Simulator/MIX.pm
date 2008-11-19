@@ -9,7 +9,7 @@ use Exporter;
           get_reg get_current_time get_max_byte
           get_exec_count get_exec_time get_last_error get_cmp_flag );
 
-$VERSION   = 0.4;
+$VERSION   = 0.5;
 
 use strict;
 use warnings;
@@ -354,7 +354,7 @@ sub X_INPUT {
     } elsif ($f >= U_TAPE && $f < U_DISK) {
 	$self->read_tape($f, $m);
     } elsif ($f >= U_DISK && $f < U_CARDREADER) {
-	$self->read_disk($f, $m);
+	$self->read_tape($f, $m); # treat disk as tape because they are same block device
     } elsif ($f == U_TYPEWRITER) { # Input from typewriter
 	$self->read_typewriter($m);
     } else {
@@ -578,7 +578,7 @@ sub X_OUTPUT {
     } elsif (U_TAPE <= $f && $f <= (U_TAPE+7)) {
 	$self->write_tape($f, $m);
     } elsif (U_DISK <= $f && $f <= (U_DISK+7)) {
-	$self->write_disk($f, $m);
+	$self->write_tape($f, $m); # treat disk io as tape
     } elsif ($f == U_PAPERTAPE) { ## Output to paper tape
 	$self->write_paper_tape($m);
     } else {
@@ -1067,6 +1067,10 @@ sub write_tape
 	$tape->{pos}++;
     }    
 
+    my $devstat = @{$self->{devstat}}[$u];
+    $devstat->{laststarted} = $self->{time};
+    # write one tape block 10 ms
+    $devstat->{delay} = 10 * $self->{ms};
 }
 
 sub read_tape 
@@ -1083,6 +1087,11 @@ sub read_tape
 	$self->write_mem($m+$i, $w);
 	$tape->{pos}++;
     }        
+
+    my $devstat = @{$self->{devstat}}[$u];
+    $devstat->{laststarted} = $self->{time};
+    # Read one tape block 10 ms
+    $devstat->{delay} = 10 * $self->{ms};
 }
 
 
@@ -1094,16 +1103,36 @@ sub read_tape
 # seek : 10ms
 
 sub set_tape_pos {
-    my ($self) = @_;
+    my ($self, $u, $offset) = @_;
+
+    my $tape = $self->{dev}->{$u};
+
+    if ($offset == 0)
+    {
+	$tape->{pos} = 0;
+    }
+    else
+    {
+	$tape->{pos} += $offset;
+    }
+
+    my $devstat = @{$self->{devstat}}[$u];
+    $devstat->{laststarted} = $self->{time};
+    # seek time 10 ms
+    $devstat->{delay} = 10 * $self->{ms};
 }
-sub set_disk_pos {
-    my ($self) = @_;
-}
-sub write_disk {
-    my ($self) = @_;
-}
-sub read_disk {
-    my ($self) = @_;
+
+
+sub set_disk_pos
+{
+    my ($self, $u) = @_;
+
+    my $disk = $self->{dev}->{$u};
+    $disk->{pos} = get_reg('rX');
+    my $devstat = @{$self->{devstat}}[$u];
+    $devstat->{laststarted} = $self->{time};
+    # seek time 10 ms
+    $devstat->{delay} = 10 * $self->{ms};
 }
 
 # Load cards into memory started at $loc

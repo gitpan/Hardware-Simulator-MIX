@@ -377,9 +377,10 @@ sub init_optable
 sub remove_comment
 {
     my $line = shift;
-    return $line if length($line) < 21;
-    my $s1 = substr($line, 0, 20);
-    my $s2 = substr($line, 20);
+#    print "[$line]\n";
+    return $line if length($line) < 22;
+    my $s1 = substr($line, 0, 21);
+    my $s2 = substr($line, 21);
     $s2 =~ s/\s+.*$//;
     return $s1 . $s2;
 }
@@ -440,12 +441,12 @@ sub parse1
 		if (!defined $val) {
 			error("bad ORIG operand");
 		} else {
-			$loc = $val;
 			debug ", set loc = $val";
 			if (defined $label) {
 				debug ", Install symbol $label with value $loc\n";
-				install_symbol($label, $val);
+				install_symbol($label, $loc);
 			}
+			$loc = $val;
 		}
 	} elsif ( $value eq 'ALF' ) {
 		if (defined $label) {
@@ -460,6 +461,10 @@ sub parse1
 		}
 		$loc++;
 	} elsif ( $value eq 'END' ) {
+		if (defined $label) {
+			debug ", Install symbol $label with value $loc\n";
+			install_symbol($label, $loc);
+		}
 		my $val = parse_w_value($get_token);
 		if (defined $val) {
 		    $program_entry = $val;
@@ -719,12 +724,12 @@ sub parse2
 	} elsif ( $value eq 'ORIG' ) {
 		$loc = parse_w_value($get_token);
 	} elsif ( $value eq 'ALF' ) {
-		if (length($src) < 21) {
-			error("error ALF instruction, no enough chars");
-		} else {
-			$code->{type} = 'data';
-			$code->{code} = string_to_word(substr($src, 16, 5));
+	        my $alf = substr($src, index($src, 'ALF') + 5);
+		if (length($alf) < 5) {
+		  $alf = $alf . " " x (5 - length($alf));
 		}
+		$code->{type} = 'data';
+		$code->{code} = string_to_word(substr($alf, 0, 5));
 		$loc++;
 	} elsif ( $value eq 'CON' ) {
 		my $tmp = parse_w_value($get_token);

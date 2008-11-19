@@ -1,15 +1,14 @@
 
-
-                -  Y    =    =    =   =   =    Y  -
-              | o \|    | \/ |    |     x      |/ o |
-               \ /  \   =    =    =   =   =   /  \ /
-
-
      T H E   M I X   S I M U L A T O R   A N D   A S S E M B L E R
 
                    Chaoji Li<lichaoji@gmail.com>
 
                          March 22, 2008
+
+
+                -  Y    =    =    =   =   =    Y  -
+              | o \|    | \/ |    |     x      |/ o |
+               \ /  \   =    =    =   =   =   /  \ /
 
 
 There are so many MIX simulators all over the world. The reason for this
@@ -114,62 +113,3 @@ FIRST FIVE HUNDRED PRIMES
 MIX>
 
 
-========================================================================
- C H A N G E   L O G
-========================================================================
-0.4: May 22, 2008
-
-    - Performance improve, nearly 4 times
-    - document
-
-0.3: Feb 28, 2008
-
-    - Fix unasm bug CMP? not handled
-    - Fix MIX.pm: our deprecated, add document
-
-0.2: Feb 27, 2008
-
-    - Add unasm in mixsim.pl
-    - Add print machine status
-    - Remove the print_all_regs in MIX.pm
-
-0.10: Feb 24, 2008
-
-    - Add CON support for mixasm.pl, parse_w_value
-
-0.09: Feb 17, 2008
-
-    - Fix bug: mixasm.pl: no TRANS card if no end of line after "END
-      START"
-
-    - Add feature: show execution count and time for
-      instrunctions in the 'd' command
-
-
-0.08: Feb 07, 2008
-
-    - Fix a timing bug in wait_until_device_ready (+=)
-
-0.07: Feb 06, 2008
-
-    - Add timing
-
-0.06: Jan 14, 2007
-
-    - Add disk and tape support
-    - rewrite io device management
-
-0.05: Dec 13, 2006
-
-    - support full instructions
-    - support only part of the io devices(card reader/punch, printer)
-
-0.04: 
-    - Apr. 2006: mixsim.pl: add a command line user interface
-               : mixasm.pl: add generate code 
-
-    - Nov. 2006: create test cases; fix some bugs
-
-0.03: add mixasm.pl
-0.02: add load operations, display registers and flags
-0.01: basic reset, only halt instruction
